@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 
+import { EndpointDiagnostics } from "@/components/sonarr/endpoint-diagnostics";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -11,12 +11,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { AiNarrativeBrief } from "@/components/sonarr/ai-narrative-brief";
 import { ExecutionPreviewSection } from "@/components/sonarr/execution-preview-section";
 import { NarrativeLaunchRoom } from "@/components/sonarr/narrative-launch-room";
 import { NarrativeSignalStack } from "@/components/sonarr/narrative-signal-stack";
 import {
   buildNarrativeSignalStack,
+  getIndexConstituentData,
   getNarrativeMarketSnapshots,
+  getSectorSpotlightData,
 } from "@/lib/sonarr/signal-stack";
 import {
   formatRelativeTime,
@@ -74,13 +77,9 @@ function getWeightedAssets(assets: string[]) {
   }));
 }
 
-function getSourceLabel(radar: RadarData, narrative: NarrativeSignal) {
-  if (radar.source === "fallback" || narrative.source === "fallback") {
-    return "Fallback data";
-  }
-
-  if (radar.source === "mixed") {
-    return "Mixed data";
+function getSourceLabel(radar: RadarData) {
+  if (radar.mode === "partial") {
+    return "Partial SoSoValue data";
   }
 
   return "Live SoSoValue data";
@@ -125,12 +124,63 @@ function getNarrativeBrief(narrative: NarrativeSignal) {
 export default async function NarrativeIntelligencePage({ params }: PageProps) {
   const { id } = await params;
   const result = await getNarrativeById(id);
+  const { narrative, radar } = result;
 
-  if (!result) {
-    notFound();
+  if (!narrative) {
+    return (
+      <main className="min-h-screen bg-background text-foreground">
+        <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_16%_6%,rgba(43,68,231,0.18),transparent_30rem),radial-gradient(circle_at_84%_10%,rgba(255,255,255,0.07),transparent_24rem)]" />
+        <header className="border-b border-border bg-background/80 backdrop-blur-xl">
+          <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
+            <Link href="/radar" className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-primary/40 bg-primary/15 text-sm font-semibold text-primary">
+                SN
+              </span>
+              <div>
+                <p className="font-semibold leading-none text-foreground">SoNarr</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Narrative intelligence
+                </p>
+              </div>
+            </Link>
+            <Link
+              href="/radar"
+              className={buttonVariants({ variant: "outline", className: "px-4" })}
+            >
+              Back to radar
+            </Link>
+          </nav>
+        </header>
+        <section className="mx-auto max-w-7xl px-6 py-10 lg:px-8">
+          <Card className="bg-card/85">
+            <CardHeader>
+              <Badge variant="outline">Live data only</Badge>
+              <CardTitle className="mt-5 text-3xl">
+                This narrative could not be resolved from live SoSoValue data.
+              </CardTitle>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+                SoNarr no longer loads fallback narratives. If the radar endpoints
+                fail, rate-limit, or return an incompatible response shape, this
+                page shows diagnostics instead of generated demo content.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <Link
+                href="/radar"
+                className={buttonVariants({ variant: "default", className: "px-4" })}
+              >
+                Back to radar
+              </Link>
+            </CardContent>
+          </Card>
+          <div className="mt-6">
+            <EndpointDiagnostics endpoints={radar.endpoints} />
+          </div>
+        </section>
+      </main>
+    );
   }
 
-  const { narrative, radar } = result;
   const assets = getAssets(narrative);
   const weightedAssets = getWeightedAssets(assets);
   const coreAssets = assets.slice(0, 2);
@@ -138,18 +188,46 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
   const watchlistAssets = assets.slice(4);
   const brief = getNarrativeBrief(narrative);
   const evidenceBullets = getEvidenceBullets(narrative);
-  const sourceLabel = getSourceLabel(radar, narrative);
+  const sourceLabel = getSourceLabel(radar);
   const riskLevel = getRiskLabel(narrative.score);
-  const marketSnapshots = await getNarrativeMarketSnapshots(narrative);
+  const [indexConstituents, marketSnapshots, sectorSpotlight] = await Promise.all([
+    getIndexConstituentData(),
+    getNarrativeMarketSnapshots(narrative),
+    getSectorSpotlightData(),
+  ]);
+  const signalEndpointStatuses = [
+    ...indexConstituents.endpoints,
+    ...marketSnapshots.endpoints,
+    ...sectorSpotlight.endpoints,
+  ];
   const signalStack = buildNarrativeSignalStack({
     assets,
     evidenceBullets,
-    marketSnapshots,
+    indexConstituents: indexConstituents.data,
+    marketSnapshots: marketSnapshots.data,
     narrative,
     radar,
     riskLevel,
+    sectorSpotlight: sectorSpotlight.data,
+    signalEndpointStatuses,
     weightedAssets,
   });
+  const aiBriefInput = {
+    basis: evidenceBullets,
+    confidence: narrative.confidence,
+    generatedWeights: weightedAssets,
+    narrativeId: narrative.id,
+    risk: riskLevel,
+    signalScore: narrative.score,
+    sourceLabels: [
+      sourceLabel,
+      "SoSoValue hot news and news search",
+      "SoNarr deterministic narrative engine",
+    ],
+    summary: `${brief.what} ${brief.whyNow}`,
+    title: `${narrative.label} Momentum`,
+    topAssets: assets,
+  };
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -359,6 +437,8 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
       </section>
 
       <NarrativeSignalStack stack={signalStack} />
+
+      <AiNarrativeBrief input={aiBriefInput} />
 
       <section className="mx-auto grid max-w-7xl gap-6 px-6 pb-10 lg:grid-cols-[1.1fr_0.9fr] lg:px-8">
         <Card className="bg-card/85">

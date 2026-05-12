@@ -1,20 +1,19 @@
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import type { NarrativeSignal, RadarData } from "@/lib/sosovalue";
-import { cn } from "@/lib/utils";
 
 type RadarHeroProps = {
   radar: RadarData;
-  topNarrative: NarrativeSignal;
+  topNarrative?: NarrativeSignal;
 };
 
 export function RadarHero({ radar, topNarrative }: RadarHeroProps) {
   const sourceLabel =
-    radar.source === "live"
+    radar.mode === "live"
       ? "Live SoSoValue feed"
-      : radar.source === "mixed"
-        ? "Mixed live + fallback data"
-        : "Demo fallback feed";
+      : radar.mode === "partial"
+        ? "Partial SoSoValue data"
+        : "SoSoValue data unavailable";
 
   return (
     <div className="relative overflow-hidden  p-6 shadow-sm sm:p-8">
@@ -24,11 +23,8 @@ export function RadarHero({ radar, topNarrative }: RadarHeroProps) {
         <div className="max-w-4xl">
           <div className="flex flex-wrap items-center gap-3">
             <Badge
-              variant={radar.source === "live" ? "default" : "outline"}
-              className={cn(
-                "gap-1.5 rounded-full px-3 py-1",
-                radar.source === "fallback" && "text-muted-foreground"
-              )}
+              variant={radar.mode === "live" ? "default" : "outline"}
+              className="gap-1.5 rounded-full px-3 py-1"
             >
               {sourceLabel}
             </Badge>
@@ -89,23 +85,26 @@ export function RadarHero({ radar, topNarrative }: RadarHeroProps) {
               </div>
             </div>
 
-            <span className="text-sm text-muted-foreground">Live</span>
+            <span className="text-sm text-muted-foreground">
+              {radar.mode === "live" ? "Live" : "No fallback"}
+            </span>
           </div>
 
           <div className="mt-6 flex items-end justify-between gap-4">
             <div>
               <p className="text-3xl font-semibold tracking-tight text-foreground">
-                {topNarrative.label}
+                {topNarrative?.label ?? "Pending"}
               </p>
               <p className="mt-2 max-w-48 text-sm leading-6 text-muted-foreground">
-                {topNarrative.status}
+                {topNarrative?.status ??
+                  "Waiting for compatible live SoSoValue narrative data."}
               </p>
             </div>
 
             <div className="rounded-2xl border bg-card px-4 py-3 text-right">
               <p className="text-xs text-muted-foreground">Signal score</p>
               <p className="mt-1 text-3xl font-semibold text-primary">
-                {topNarrative.score}
+                {topNarrative?.score ?? "--"}
               </p>
             </div>
           </div>

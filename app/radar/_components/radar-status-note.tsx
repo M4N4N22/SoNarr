@@ -1,20 +1,20 @@
 import type { RadarData } from "@/lib/sosovalue";
 
 export function RadarStatusNote({ radar }: { radar: RadarData }) {
-  if (radar.source === "fallback") {
+  if (radar.mode === "unavailable") {
     return (
       <div className="mt-6 rounded-2xl border border-border bg-muted/60 p-4 text-sm text-muted-foreground">
-        Live feed unavailable, so SoNarr is showing fallback data. Reason:{" "}
-        {radar.reason}
+        SoSoValue radar data is unavailable. SoNarr is not showing fallback
+        narrative cards; check endpoint diagnostics below for the exact issue.
       </div>
     );
   }
 
-  if (radar.source === "mixed") {
+  if (radar.mode === "partial") {
     return (
       <div className="mt-6 rounded-2xl border border-border bg-muted/60 p-4 text-sm text-muted-foreground">
-        SoNarr loaded the hot news feed and filled any rate-limited narrative
-        checks with fallback category data.
+        Partial SoSoValue data loaded. SoNarr is only showing narratives or feed
+        items backed by successful endpoint responses.
       </div>
     );
   }

@@ -33,7 +33,7 @@ export function HotNewsFeed({ hotNews }: { hotNews: NewsItem[] }) {
               </CardTitle>
 
               <p className="text-sm text-muted-foreground">
-                A continuous market feed powered by SoSoValue.
+                A continuous market feed powered by SoSovalue.
               </p>
             </div>
           </div>
@@ -42,6 +42,19 @@ export function HotNewsFeed({ hotNews }: { hotNews: NewsItem[] }) {
       </CardHeader>
 
       <CardContent className="relative h-[560px] overflow-hidden p-0">
+        {hotNews.length === 0 ? (
+          <div className="flex h-full items-center justify-center p-8 text-center">
+            <div className="max-w-sm">
+              <p className="text-lg font-semibold text-foreground">
+                Live hot news is unavailable.
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                SoNarr did not receive compatible data from GET /news/hot, so
+                no generated feed items are shown.
+              </p>
+            </div>
+          </div>
+        ) : null}
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-16 bg-gradient-to-b from-card to-transparent" />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-16 bg-gradient-to-t from-card to-transparent" />
 

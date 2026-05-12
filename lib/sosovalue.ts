@@ -1,3 +1,13 @@
+import {
+  dataSourceMode,
+  errorTypeFromHttpStatus,
+  logEndpointStatus,
+  responseShapeSummary,
+  type DataSourceState,
+  type EndpointResult,
+  type EndpointStatus,
+} from "@/lib/types/data-source";
+
 type UnknownRecord = Record<string, unknown>;
 
 export type CurrencyRef = {
@@ -25,7 +35,7 @@ export type NarrativeSignal = {
   total: number;
   score: number;
   confidence: number;
-  source: "live" | "fallback";
+  source: "live";
   status: "Heating up" | "Active" | "Watching";
   latestTitle: string;
   latestTime?: number;
@@ -33,12 +43,10 @@ export type NarrativeSignal = {
   items: NewsItem[];
 };
 
-export type RadarData = {
+export type RadarData = DataSourceState & {
   hotNews: NewsItem[];
   narratives: NarrativeSignal[];
-  source: "live" | "mixed" | "fallback";
-  reason?: string;
-  updatedAt: string;
+  note?: string;
 };
 
 const API_BASE_URL =
@@ -51,136 +59,6 @@ const narrativeQueries = [
   { id: "defi", keyword: "DeFi", label: "DeFi" },
   { id: "stablecoin", keyword: "Stablecoin", label: "Stablecoin" },
   { id: "layer-2", keyword: "Layer 2", label: "Layer 2" },
-];
-
-const fallbackHotNews: NewsItem[] = [
-  {
-    id: "fallback-hot-1",
-    title: "Bitcoin liquidity rotation drives renewed institutional attention",
-    content:
-      "Market desks are tracking renewed Bitcoin momentum alongside ETF flow discussion and broader risk-on positioning.",
-    sourceLink: "https://sosovalue.com",
-    releaseTime: Date.now() - 1000 * 60 * 42,
-    author: "SoNarr fallback",
-    tags: ["Bitcoin", "ETF"],
-    currencies: ["BTC"],
-    currencyRefs: [{ id: "1673723677362319866", name: "BITCOIN", symbol: "BTC" }],
-  },
-  {
-    id: "fallback-hot-2",
-    title: "AI infrastructure tokens lead narrative watchlists",
-    content:
-      "AI-linked crypto assets are being monitored as capital expenditure headlines and token momentum overlap.",
-    sourceLink: "https://sosovalue.com",
-    releaseTime: Date.now() - 1000 * 60 * 88,
-    author: "SoNarr fallback",
-    tags: ["AI"],
-    currencies: ["TAO", "FET", "RNDR"],
-    currencyRefs: [
-      { symbol: "TAO" },
-      { symbol: "FET" },
-      { symbol: "RNDR" },
-    ],
-  },
-  {
-    id: "fallback-hot-3",
-    title: "Stablecoin settlement and RWA rails remain active themes",
-    content:
-      "Stablecoin payment infrastructure and tokenized real-world asset updates continue to appear across market feeds.",
-    sourceLink: "https://sosovalue.com",
-    releaseTime: Date.now() - 1000 * 60 * 131,
-    author: "SoNarr fallback",
-    tags: ["Stablecoin", "RWA"],
-    currencies: ["USDC", "ONDO"],
-    currencyRefs: [{ symbol: "USDC" }, { symbol: "ONDO" }],
-  },
-];
-
-const fallbackNarratives: NarrativeSignal[] = [
-  {
-    id: "ai",
-    keyword: "AI",
-    label: "AI",
-    total: 58,
-    score: 88,
-    confidence: 74,
-    source: "fallback",
-    status: "Heating up",
-    latestTitle: "AI infrastructure tokens lead narrative watchlists",
-    latestTime: Date.now() - 1000 * 60 * 88,
-    relatedAssets: ["TAO", "FET", "RNDR"],
-    items: [fallbackHotNews[1]],
-  },
-  {
-    id: "bitcoin-etf",
-    keyword: "Bitcoin ETF",
-    label: "Bitcoin ETF",
-    total: 41,
-    score: 76,
-    confidence: 68,
-    source: "fallback",
-    status: "Active",
-    latestTitle: "Bitcoin liquidity rotation drives renewed institutional attention",
-    latestTime: Date.now() - 1000 * 60 * 42,
-    relatedAssets: ["BTC"],
-    items: [fallbackHotNews[0]],
-  },
-  {
-    id: "rwa",
-    keyword: "RWA",
-    label: "RWA",
-    total: 24,
-    score: 61,
-    confidence: 59,
-    source: "fallback",
-    status: "Watching",
-    latestTitle: "Stablecoin settlement and RWA rails remain active themes",
-    latestTime: Date.now() - 1000 * 60 * 131,
-    relatedAssets: ["ONDO"],
-    items: [fallbackHotNews[2]],
-  },
-  {
-    id: "defi",
-    keyword: "DeFi",
-    label: "DeFi",
-    total: 22,
-    score: 58,
-    confidence: 56,
-    source: "fallback",
-    status: "Watching",
-    latestTitle: "DeFi risk and liquidity checks remain a radar category",
-    latestTime: Date.now() - 1000 * 60 * 160,
-    relatedAssets: ["AAVE", "UNI"],
-    items: [],
-  },
-  {
-    id: "stablecoin",
-    keyword: "Stablecoin",
-    label: "Stablecoin",
-    total: 33,
-    score: 69,
-    confidence: 64,
-    source: "fallback",
-    status: "Active",
-    latestTitle: "Stablecoin settlement and RWA rails remain active themes",
-    latestTime: Date.now() - 1000 * 60 * 131,
-    relatedAssets: ["USDC"],
-    items: [fallbackHotNews[2]],
-  },
-  {
-    id: "layer-2",
-    keyword: "Layer 2",
-    label: "Layer 2",
-    total: 19,
-    score: 52,
-    confidence: 52,
-    source: "fallback",
-    status: "Watching",
-    latestTitle: "Layer 2 activity remains on the monitoring board",
-    latestTime: Date.now() - 1000 * 60 * 220,
-    relatedAssets: ["ARB", "OP"],
-    items: [],
-  },
 ];
 
 function isRecord(value: unknown): value is UnknownRecord {
@@ -251,7 +129,7 @@ function parseCurrencyRefs(value: unknown): CurrencyRef[] {
         return undefined;
       }
 
-      const currencyRef: CurrencyRef = { symbol };
+      const currencyRef: CurrencyRef = { symbol: symbol.toUpperCase() };
       const id = asString(currency.currency_id) ?? asString(currency.id);
       const name = asString(currency.full_name) ?? asString(currency.name);
 
@@ -326,30 +204,106 @@ function responseData(value: unknown): UnknownRecord & { list: unknown[] } {
   return { ...data, list };
 }
 
-async function requestSoSoValue(path: "/news/hot" | "/news/search", params: URLSearchParams) {
+async function requestSoSoValue(
+  path: "/news/hot" | "/news/search",
+  params: URLSearchParams,
+  name: string,
+): Promise<EndpointResult<unknown>> {
+  const startedAt = Date.now();
+  const endpoint = `GET ${path}`;
   const apiKey = process.env.SOSOVALUE_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing SOSOVALUE_API_KEY.");
-  }
 
   const url = new URL(`${API_BASE_URL}${path}`);
   params.forEach((value, key) => {
     url.searchParams.set(key, value);
   });
 
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "x-soso-api-key": apiKey,
-    },
-    next: { revalidate: 60 },
-  });
-
-  if (!response.ok) {
-    throw new Error(`SoSoValue request failed with ${response.status}.`);
+  if (!apiKey) {
+    const status: EndpointStatus = {
+      name,
+      endpoint,
+      ok: false,
+      errorType: "missing_api_key",
+      message: "Missing SOSOVALUE_API_KEY. Add the key to enable live SoSoValue data.",
+      durationMs: Date.now() - startedAt,
+      itemCount: 0,
+    };
+    logEndpointStatus({ status, url: url.toString() });
+    return { ok: false, status };
   }
 
-  return response.json();
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "x-soso-api-key": apiKey,
+      },
+      next: { revalidate: 60 },
+    });
+    const durationMs = Date.now() - startedAt;
+
+    if (!response.ok) {
+      const status: EndpointStatus = {
+        name,
+        endpoint,
+        ok: false,
+        status: response.status,
+        statusText: response.statusText,
+        errorType: errorTypeFromHttpStatus(response.status),
+        message: `SoSoValue returned ${response.status} ${response.statusText || ""}`.trim(),
+        durationMs,
+        itemCount: 0,
+      };
+      logEndpointStatus({ status, url: url.toString() });
+      return { ok: false, status };
+    }
+
+    try {
+      const data: unknown = await response.json();
+      const status: EndpointStatus = {
+        name,
+        endpoint,
+        ok: true,
+        status: response.status,
+        statusText: response.statusText,
+        errorType: "unknown",
+        message: "SoSoValue endpoint responded successfully.",
+        durationMs,
+      };
+      logEndpointStatus({
+        status,
+        url: url.toString(),
+        shape: responseShapeSummary(data),
+      });
+      return { ok: true, data, status };
+    } catch {
+      const status: EndpointStatus = {
+        name,
+        endpoint,
+        ok: false,
+        status: response.status,
+        statusText: response.statusText,
+        errorType: "invalid_response",
+        message: "SoSoValue response could not be parsed as JSON.",
+        durationMs,
+        itemCount: 0,
+      };
+      logEndpointStatus({ status, url: url.toString() });
+      return { ok: false, status };
+    }
+  } catch {
+    const status: EndpointStatus = {
+      name,
+      endpoint,
+      ok: false,
+      errorType: "network_error",
+      message: "Network error while contacting SoSoValue.",
+      durationMs: Date.now() - startedAt,
+      itemCount: 0,
+    };
+    logEndpointStatus({ status, url: url.toString() });
+    return { ok: false, status };
+  }
 }
 
 function parseNewsList(response: unknown) {
@@ -368,7 +322,17 @@ function parseNewsList(response: unknown) {
   };
 }
 
-async function getHotNews() {
+function invalidResponseStatus(status: EndpointStatus, message: string): EndpointStatus {
+  return {
+    ...status,
+    ok: false,
+    errorType: "invalid_response",
+    message,
+    itemCount: 0,
+  };
+}
+
+async function getHotNews(): Promise<EndpointResult<NewsItem[]>> {
   const response = await requestSoSoValue(
     "/news/hot",
     new URLSearchParams({
@@ -376,9 +340,29 @@ async function getHotNews() {
       page_size: "12",
       language: "en",
     }),
+    "Hot News",
   );
 
-  return parseNewsList(response).list;
+  if (!response.ok) {
+    return response;
+  }
+
+  try {
+    const parsed = parseNewsList(response.data);
+    const status = { ...response.status, itemCount: parsed.list.length };
+    logEndpointStatus({ status });
+    return { ok: true, data: parsed.list, status };
+  } catch (error) {
+    return {
+      ok: false,
+      status: invalidResponseStatus(
+        response.status,
+        error instanceof Error
+          ? error.message
+          : "SoSoValue hot news response shape was incompatible.",
+      ),
+    };
+  }
 }
 
 async function getNarrativeSignal({
@@ -389,7 +373,7 @@ async function getNarrativeSignal({
   id: string;
   keyword: string;
   label: string;
-}): Promise<NarrativeSignal> {
+}): Promise<EndpointResult<NarrativeSignal>> {
   const response = await requestSoSoValue(
     "/news/search",
     new URLSearchParams({
@@ -398,79 +382,92 @@ async function getNarrativeSignal({
       page_size: "8",
       sort: "release_time",
     }),
-  );
-  const parsed = parseNewsList(response);
-  const relatedAssets: string[] = Array.from(
-    new Set(parsed.list.flatMap((item: NewsItem) => item.currencies).slice(0, 6)),
-  );
-  const score = Math.min(
-    96,
-    Math.max(35, Math.round(Math.log10(parsed.total + 1) * 24 + parsed.list.length * 2)),
+    `Narrative Search: ${label}`,
   );
 
-  return {
-    id,
-    keyword,
-    label,
-    total: parsed.total,
-    score,
-    confidence: Math.min(94, Math.max(48, Math.round(score * 0.78 + parsed.list.length * 2))),
-    source: "live",
-    status: score >= 78 ? "Heating up" : score >= 62 ? "Active" : "Watching",
-    latestTitle: parsed.list[0]?.title ?? `${label} narrative activity`,
-    latestTime: parsed.list[0]?.releaseTime,
-    relatedAssets,
-    items: parsed.list,
-  };
+  if (!response.ok) {
+    return response;
+  }
+
+  try {
+    const parsed = parseNewsList(response.data);
+    const relatedAssets: string[] = Array.from(
+      new Set(parsed.list.flatMap((item: NewsItem) => item.currencies).slice(0, 6)),
+    );
+    const score = Math.min(
+      96,
+      Math.max(35, Math.round(Math.log10(parsed.total + 1) * 24 + parsed.list.length * 2)),
+    );
+    const narrative: NarrativeSignal = {
+      id,
+      keyword,
+      label,
+      total: parsed.total,
+      score,
+      confidence: Math.min(
+        94,
+        Math.max(48, Math.round(score * 0.78 + parsed.list.length * 2)),
+      ),
+      source: "live",
+      status: score >= 78 ? "Heating up" : score >= 62 ? "Active" : "Watching",
+      latestTitle: parsed.list[0]?.title ?? `${label} narrative activity`,
+      latestTime: parsed.list[0]?.releaseTime,
+      relatedAssets,
+      items: parsed.list,
+    };
+    const status = { ...response.status, itemCount: parsed.list.length };
+    logEndpointStatus({ status });
+    return { ok: true, data: narrative, status };
+  } catch (error) {
+    return {
+      ok: false,
+      status: invalidResponseStatus(
+        response.status,
+        error instanceof Error
+          ? error.message
+          : "SoSoValue narrative search response shape was incompatible.",
+      ),
+    };
+  }
 }
 
 export async function getRadarData(): Promise<RadarData> {
-  try {
-    const hotNews = await getHotNews();
-    const narratives: NarrativeSignal[] = [];
+  const updatedAt = new Date().toISOString();
+  const hotNewsResult = await getHotNews();
+  const endpoints: EndpointStatus[] = [hotNewsResult.status];
+  const hotNews = hotNewsResult.ok ? hotNewsResult.data : [];
+  const narratives: NarrativeSignal[] = [];
 
-    for (const query of narrativeQueries) {
-      try {
-        narratives.push(await getNarrativeSignal(query));
-      } catch {
-        const fallback = fallbackNarratives.find(
-          (narrative) => narrative.keyword === query.keyword,
-        );
+  for (const query of narrativeQueries) {
+    const result = await getNarrativeSignal(query);
+    endpoints.push(result.status);
 
-        if (fallback) {
-          narratives.push(fallback);
-        }
-      }
+    if (result.ok) {
+      narratives.push(result.data);
     }
-
-    return {
-      hotNews,
-      narratives: narratives.sort(
-        (a: NarrativeSignal, b: NarrativeSignal) => b.score - a.score,
-      ),
-      source: narratives.some((narrative) => narrative.source === "fallback")
-        ? "mixed"
-        : "live",
-      updatedAt: new Date().toISOString(),
-    };
-  } catch (error) {
-    return {
-      hotNews: fallbackHotNews,
-      narratives: fallbackNarratives,
-      source: "fallback",
-      reason: error instanceof Error ? error.message : "SoSoValue feed unavailable.",
-      updatedAt: new Date().toISOString(),
-    };
   }
+
+  const usefulItemCount = hotNews.length + narratives.length;
+  const mode = dataSourceMode({ endpoints, usefulItemCount });
+
+  return {
+    hotNews,
+    narratives: narratives.sort(
+      (a: NarrativeSignal, b: NarrativeSignal) => b.score - a.score,
+    ),
+    mode,
+    endpoints,
+    note:
+      mode === "unavailable"
+        ? "SoSoValue radar data is unavailable. Check endpoint status for details."
+        : undefined,
+    updatedAt,
+  };
 }
 
 export async function getNarrativeById(id: string) {
   const radar = await getRadarData();
   const narrative = radar.narratives.find((item) => item.id === id);
-
-  if (!narrative) {
-    return undefined;
-  }
 
   return {
     narrative,

@@ -202,7 +202,7 @@ export function NarrativeLaunchRoom(props: NarrativeLaunchRoomProps) {
           </div>
         </CardHeader>
         <CardContent className="space-y-6 p-6 sm:p-8">
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-1">
             {launchAssets.map((asset) => (
               <Card key={asset.title} className="bg-background/50 shadow-none">
                 <CardHeader>

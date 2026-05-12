@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { EndpointDiagnostics } from "@/components/sonarr/endpoint-diagnostics";
 import { HotNewsFeed } from "./_components/hot-news-feed";
 import { NarrativeChecks } from "./_components/narrative-checks";
 import { RadarHero } from "./_components/radar-hero";
@@ -20,12 +21,14 @@ export default async function RadarPage() {
   const radar = await getRadarData();
   const topNarrative = radar.narratives[0];
   const remainingNarratives = radar.narratives.slice(1);
-  const hotMentions = radar.hotNews.filter((item) =>
-    [item.title, item.content, ...item.tags]
-      .join(" ")
-      .toLowerCase()
-      .includes(topNarrative.keyword.toLowerCase()),
-  ).length;
+  const hotMentions = topNarrative
+    ? radar.hotNews.filter((item) =>
+        [item.title, item.content, ...item.tags]
+          .join(" ")
+          .toLowerCase()
+          .includes(topNarrative.keyword.toLowerCase()),
+      ).length
+    : 0;
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -46,10 +49,16 @@ export default async function RadarPage() {
           <NarrativeChecks
             title="Top narrative"
             description="The strongest current category check from SoSoValue-powered search."
-            narratives={[topNarrative]}
+            narratives={topNarrative ? [topNarrative] : []}
           />
         </div>
       </section>
+
+      {radar.mode !== "live" ? (
+        <section className="mx-auto max-w-7xl px-6 pb-10 lg:px-8">
+          <EndpointDiagnostics endpoints={radar.endpoints} />
+        </section>
+      ) : null}
 
       <section className="mx-auto max-w-7xl px-6 pb-10 lg:px-8">
         <NarrativeChecks
