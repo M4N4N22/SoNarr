@@ -333,9 +333,6 @@ export default function Home() {
       <header className="sticky top-0 z-40 border-b border-border bg-background/75 backdrop-blur-xl">
         <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
           <a href="#" className="flex items-center gap-3" aria-label="SoNarr home">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-primary/40 bg-primary/15 text-sm font-semibold text-primary">
-              SN
-            </span>
             <span className="font-semibold tracking-tight text-foreground">SoNarr</span>
           </a>
           <div className="hidden items-center gap-8 md:flex">
