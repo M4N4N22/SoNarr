@@ -1,5 +1,11 @@
 type UnknownRecord = Record<string, unknown>;
 
+export type CurrencyRef = {
+  id?: string;
+  name?: string;
+  symbol: string;
+};
+
 export type NewsItem = {
   id: string;
   title: string;
@@ -9,6 +15,7 @@ export type NewsItem = {
   author?: string;
   tags: string[];
   currencies: string[];
+  currencyRefs: CurrencyRef[];
 };
 
 export type NarrativeSignal = {
@@ -57,6 +64,7 @@ const fallbackHotNews: NewsItem[] = [
     author: "SoNarr fallback",
     tags: ["Bitcoin", "ETF"],
     currencies: ["BTC"],
+    currencyRefs: [{ id: "1673723677362319866", name: "BITCOIN", symbol: "BTC" }],
   },
   {
     id: "fallback-hot-2",
@@ -68,6 +76,11 @@ const fallbackHotNews: NewsItem[] = [
     author: "SoNarr fallback",
     tags: ["AI"],
     currencies: ["TAO", "FET", "RNDR"],
+    currencyRefs: [
+      { symbol: "TAO" },
+      { symbol: "FET" },
+      { symbol: "RNDR" },
+    ],
   },
   {
     id: "fallback-hot-3",
@@ -79,6 +92,7 @@ const fallbackHotNews: NewsItem[] = [
     author: "SoNarr fallback",
     tags: ["Stablecoin", "RWA"],
     currencies: ["USDC", "ONDO"],
+    currencyRefs: [{ symbol: "USDC" }, { symbol: "ONDO" }],
   },
 ];
 
@@ -217,7 +231,7 @@ function parseTags(value: unknown): string[] {
   return value.map(asString).filter((tag): tag is string => Boolean(tag));
 }
 
-function parseCurrencies(value: unknown): string[] {
+function parseCurrencyRefs(value: unknown): CurrencyRef[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -228,13 +242,30 @@ function parseCurrencies(value: unknown): string[] {
         return undefined;
       }
 
-      return (
+      const symbol =
         asString(currency.symbol) ??
         asString(currency.name) ??
-        asString(currency.full_name)
-      );
+        asString(currency.full_name);
+
+      if (!symbol) {
+        return undefined;
+      }
+
+      const currencyRef: CurrencyRef = { symbol };
+      const id = asString(currency.currency_id) ?? asString(currency.id);
+      const name = asString(currency.full_name) ?? asString(currency.name);
+
+      if (id) {
+        currencyRef.id = id;
+      }
+
+      if (name) {
+        currencyRef.name = name;
+      }
+
+      return currencyRef;
     })
-    .filter((symbol): symbol is string => Boolean(symbol));
+    .filter((currency): currency is CurrencyRef => Boolean(currency));
 }
 
 function parseNewsItem(value: unknown): NewsItem | undefined {
@@ -259,6 +290,10 @@ function parseNewsItem(value: unknown): NewsItem | undefined {
     return undefined;
   }
 
+  const currencyRefs = parseCurrencyRefs(
+    value.matched_currencies ?? value.matchedCurrencies,
+  );
+
   return {
     id,
     title: stripHtml(title),
@@ -267,7 +302,8 @@ function parseNewsItem(value: unknown): NewsItem | undefined {
     releaseTime,
     author: asString(value.author) ?? asString(value.nick_name),
     tags: parseTags(value.tags),
-    currencies: parseCurrencies(value.matched_currencies ?? value.matchedCurrencies),
+    currencies: currencyRefs.map((currency) => currency.symbol),
+    currencyRefs,
   };
 }
 

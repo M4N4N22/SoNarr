@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 
 import { HotNewsFeed } from "./_components/hot-news-feed";
 import { NarrativeChecks } from "./_components/narrative-checks";
-import { ProductPackagingPreview } from "./_components/product-packaging-preview";
 import { RadarHero } from "./_components/radar-hero";
 import { RadarNav } from "./_components/radar-nav";
 import { RadarStats } from "./_components/radar-stats";
@@ -49,7 +48,6 @@ export default async function RadarPage() {
             description="The strongest current category check from SoSoValue-powered search."
             narratives={[topNarrative]}
           />
-       
         </div>
       </section>
 

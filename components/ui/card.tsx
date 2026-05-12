@@ -6,7 +6,7 @@ export function Card({ className, ...props }: ComponentPropsWithoutRef<"div">) {
   return (
     <div
       className={cn(
-        "rounded-3xl bg-card text-card-foreground shadow-md ",
+        "rounded-3xl text-card-foreground shadow-md ",
         className,
       )}
       {...props}
