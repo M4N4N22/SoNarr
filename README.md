@@ -1,63 +1,132 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SoNarr
 
-## Getting Started
+Narrative sonar for one-person on-chain finance businesses.
 
-First, run the development server:
+SoNarr uses SoSoValue market intelligence to detect emerging crypto narratives, validate them through a multi-layer signal stack, generate index ideas, produce AI research briefs, and prepare execution-ready workflows for future SoDEX integration.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+It is not a generic news feed analyzer or AI chatbot. SoNarr turns SoSoValue market intelligence into launch-ready narrative finance products for solo analysts, creators, traders, and small funds.
+
+```txt
+SoSoValue APIs
+  |-- Feeds / Hot News / Search
+  |-- Market Snapshot / Klines
+  |-- Sector & Spotlight
+  `-- Index Data
+        |
+        v
+Narrative Radar
+        |
+        v
+Narrative Signal Stack
+        |
+        v
+AI Narrative Brief + Launch Room
+        |
+        v
+Public Index Preview
+        |
+        v
+Future SoDEX Execution Preview
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Current Build
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Wave 1 is a Web2 prototype for the SoSoValue Buildathon. The app demonstrates the full product loop from live market evidence to packaged index-product thinking:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Landing page explaining the SoNarr product vision.
+- Narrative Radar powered by live SoSoValue hot news and search.
+- Narrative Intelligence pages for detected narratives.
+- Narrative Signal Stack for news heat, market momentum, sector alignment, index relevance, and execution readiness.
+- Gemini-powered AI Narrative Brief for synthesis only.
+- Narrative Launch Room that turns a narrative into public thesis, memo, thread, rebalance policy, and execution checklist.
+- Preview-only SoDEX execution panel.
+- Honest endpoint diagnostics when data is unavailable or partially integrated.
 
-## Environment Variables
+## SoSoValue Usage
 
-Create a local `.env` file with:
+SoSoValue is the evidence layer for SoNarr. The app uses or wires against these endpoint areas:
+
+- Feeds: `GET /news/hot` and `GET /news/search`.
+- Currency & Pairs: market snapshot, historical klines, trading pairs, sector & spotlight.
+- SoSoValue Index: index list, index constituents, and index market snapshot.
+- Future expansion: ETFs, macro, BTC treasuries, fundraising, analysis charts, and richer historical data.
+
+SoNarr is live-data-first. It does not silently use fake fallback narratives or mock market scores as product data. If a SoSoValue endpoint fails, rate-limits, returns unauthorized/not found, or returns an incompatible response shape, the UI shows the endpoint status honestly.
+
+## AI Layer
+
+Gemini is used only for narrative synthesis. It can generate:
+
+- Executive summary.
+- Why the narrative matters now.
+- Bull case and bear case.
+- Index thesis.
+- Risk notes.
+- Suggested next step.
+
+SoSoValue remains the source of market evidence. AI does not invent prices, scores, assets, or facts, and it does not place trades or provide financial advice. AI briefs are cached server-side in memory for 30 minutes to reduce unnecessary Gemini calls and rate-limit risk during demos.
+
+## Architecture
+
+SoNarr is built with Next.js App Router, TypeScript, Tailwind CSS, and small local UI primitives inspired by shadcn/ui.
+
+Key routes:
+
+- `/` - product landing page.
+- `/radar` - live SoSoValue-powered Narrative Radar.
+- `/narratives/[id]` - Narrative Intelligence page.
+- `/api/radar` - server-side radar data route.
+- `/api/ai/narrative-brief` - server-side Gemini synthesis route.
+
+Key modules:
+
+- `lib/sosovalue.ts` - SoSoValue feed/search integration and live-data status handling.
+- `lib/sonarr/signal-stack.ts` - narrative signal-stack enrichment and scoring.
+- `lib/ai/gemini.ts` - server-side Gemini brief generation.
+- `lib/ai/brief-cache.ts` - in-memory AI brief cache.
+- `lib/types/data-source.ts` - endpoint status and data-source state types.
+
+## Setup
+
+```bash
+npm install
+npm run dev
+```
+
+Create a local `.env` file:
 
 ```bash
 SOSOVALUE_API_KEY=your_sosovalue_key
 GEMINI_API_KEY=your_gemini_key
 ```
 
-Do not use `NEXT_PUBLIC_GEMINI_API_KEY`. Gemini calls run server-side only so the key is never exposed to the browser.
+Do not use `NEXT_PUBLIC_GEMINI_API_KEY`. Gemini and SoSoValue calls run server-side so keys are never exposed to the browser.
 
-## AI Layer
+Useful commands:
 
-SoNarr uses SoSoValue as the source of market evidence for narrative detection. The Gemini AI layer is used only for narrative synthesis: it turns existing SoSoValue-powered evidence, scores, assets, weights, and risk notes into a finance-ready brief.
+```bash
+npm run lint
+npm run build
+```
 
-AI does not invent prices, scores, assets, or evidence. It does not place trades, connect wallets, custody assets, or provide financial advice. If Gemini is unavailable or `GEMINI_API_KEY` is missing, SoNarr returns a deterministic fallback brief generated from the existing narrative data.
+## Current Limitations
 
-## AI Caching
+- Wave 1 is a Web2 prototype.
+- No smart contracts.
+- No wallet connection.
+- No real trading.
+- No custody.
+- No investment advice.
+- SoDEX execution is preview-only and future-facing.
+- Some SoSoValue enrichment layers depend on endpoint availability and compatible response shapes.
+- In-memory AI cache resets on server restart.
 
-Gemini calls are server-side only. AI narrative briefs are cached in memory for 30 minutes to reduce rate-limit risk during demos. Fallback briefs may be cached briefly when Gemini is unavailable. The in-memory cache resets on server restart; a future production version can move this cache to Redis or Vercel KV.
+Development logs include safe endpoint diagnostics such as endpoint name, path, HTTP status, duration, item count, response shape summary, and error type. API keys and authorization headers are never logged.
 
-## Live Data Mode
+## Roadmap
 
-SoNarr is live-data-only in the main product flow. Radar cards, narrative pages, and signal-stack layers are built from successful SoSoValue endpoint responses only; the app does not use fake fallback narratives, mock market scores, or generated demo cards when SoSoValue data is missing.
+Wave 1: Prove the core product loop from SoSoValue intelligence to narrative radar, signal stack, AI brief, launch room, and execution preview.
 
-If a SoSoValue endpoint fails, rate-limits, returns unauthorized/not found, or returns an incompatible response shape, the UI shows endpoint diagnostics instead of fabricated data. In development, safe logs include endpoint name, path, URL without secrets, HTTP status, duration, item count, response shape summary, error type, and short message. API keys and authorization headers are never logged or exposed.
+Wave 2: Add public index pages, deeper SoSoValue enrichment, stronger historical validation, richer index methodology, and saved/published narrative products.
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Wave 3: Connect SoDEX execution readiness with real orderbook depth, slippage, basket routing, wallet-aware flows, and on-chain product surfaces when the execution layer is ready.
