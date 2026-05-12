@@ -27,6 +27,10 @@ function layerValue(layer: NarrativeSignalStackData["layers"][number]) {
   return layer.status ?? "Pending";
 }
 
+function overallValue(score?: number) {
+  return typeof score === "number" ? `${score}/100` : "Unavailable";
+}
+
 export function NarrativeSignalStack({
   stack,
 }: {
@@ -54,14 +58,16 @@ export function NarrativeSignalStack({
                     Overall narrative conviction
                   </p>
                   <p className="mt-2 text-4xl font-semibold text-foreground">
-                    {stack.overallScore}/100
+                    {overallValue(stack.overallScore)}
                   </p>
                 </div>
                 <Badge variant="outline">Current mode: {stack.mode}</Badge>
               </div>
-              <div className="mt-4">
-                <ProgressBar score={stack.overallScore} />
-              </div>
+              {typeof stack.overallScore === "number" ? (
+                <div className="mt-4">
+                  <ProgressBar score={stack.overallScore} />
+                </div>
+              ) : null}
             </div>
           </div>
         </CardHeader>

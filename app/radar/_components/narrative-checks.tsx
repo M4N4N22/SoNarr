@@ -36,6 +36,12 @@ export function NarrativeChecks({
           variant === "grid" ? "grid gap-4 md:grid-cols-2 xl:grid-cols-3" : "space-y-4"
         }
       >
+        {narratives.length === 0 ? (
+          <div className="rounded-2xl border border-border bg-background/60 p-5 text-sm leading-6 text-muted-foreground">
+            No live narrative cards are available from the current SoSoValue
+            response set.
+          </div>
+        ) : null}
         {narratives.map((narrative) => (
           <Link
             key={narrative.keyword}
@@ -74,7 +80,7 @@ export function NarrativeChecks({
             </p>
             <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
               <span className="text-xs text-muted-foreground">
-                Source: {narrative.source === "live" ? "SoSoValue" : "Fallback"}
+                Source: SoSoValue
               </span>
               <span
                 className={buttonVariants({
