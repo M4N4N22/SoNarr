@@ -183,13 +183,6 @@ next-app/
     types/data-source.ts
       EndpointStatus and DataSourceState contracts.
 
-  internal-docs/
-    landing-page-copy.md
-    design-system-guidelines.md
-    sosovalue-feeds-api.md
-    sosovalue-signal-stack-api.md
-      Buildathon source-of-truth notes used during implementation.
-
   docs/
     wave-1-updates.md
       Public Wave 1 progress summary.
