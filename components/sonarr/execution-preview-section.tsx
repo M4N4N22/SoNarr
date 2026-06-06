@@ -1,72 +1,161 @@
-import Link from "next/link";
+"use client";
 
+import { useState } from "react";
+
+import { CoverageChart } from "@/components/charts/coverage-chart";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { StatCell, StatGrid } from "@/components/ui/stat";
+import { SodexNetworkBadge } from "@/components/sonarr/sodex-network-badge";
+import type { BasketExecutionReadiness } from "@/lib/sodex";
+import { formatUsdCompact, type BasketLiquidityContext } from "@/lib/sosovalue/enrichment";
+
+function formatUsd(value: number) {
+  return `$${Math.round(value).toLocaleString()}`;
+}
+
+function formatPct(value?: number) {
+  if (value === undefined) return "—";
+  if (value > 0 && value < 0.01) return "<0.01%";
+  return `${value.toFixed(2)}%`;
+}
+
+function legStatusLabel(leg: BasketExecutionReadiness["legs"][number]) {
+  if (leg.tradable) return leg.askDepthUsd > 0 ? "OK" : "Limit";
+  if (leg.sodexSymbol || leg.displayName) return "No price";
+  return "Missing";
+}
 
 export function ExecutionPreviewSection({
-  indexHref,
+  executionReadiness,
+  liquidityContext,
+  embedded = false,
 }: {
+  executionReadiness?: BasketExecutionReadiness;
+  liquidityContext?: BasketLiquidityContext;
   indexHref?: string;
+  embedded?: boolean;
 }) {
-  return (
-    <section className="mx-auto max-w-7xl px-6 pb-16 lg:px-8">
-      <Card className="overflow-hidden bg-card/85">
-        <div className="grid gap-0 lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="border-b border-border p-6 lg:border-b-0 lg:border-r">
-            <Badge variant="outline">Status: Preview only</Badge>
-            <h2 className="mt-5 text-3xl font-semibold tracking-tight text-foreground">
-              SoDEX execution preview
-            </h2>
-            <p className="mt-4 leading-7 text-muted-foreground">
-              No real trade is placed. The future step is to check SoDEX
-              orderbook depth, slippage, and basket execution route before any
-              execution integration exists.
-            </p>
-            <Button className="mt-6" variant="outline" disabled>
-              Preview execution route
-            </Button>
-          </div>
-          <div className="grid gap-4 p-6 sm:grid-cols-3">
-            {["Orderbook depth", "Slippage estimate", "Basket route"].map((item) => (
-              <div
-                key={item}
-                className="rounded-2xl border border-border bg-background/60 p-4"
-              >
-                <p className="text-sm text-muted-foreground">{item}</p>
-                <p className="mt-3 font-semibold text-foreground">Pending</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Card>
+  const [showRoute, setShowRoute] = useState(false);
+  const hasLiveData = Boolean(executionReadiness && executionReadiness.mode !== "unavailable");
+  const hasLiquidityData = Boolean(liquidityContext && liquidityContext.mode !== "unavailable");
 
-      <div className="mt-8 flex flex-col items-center justify-between gap-4 rounded-2xl border border-border bg-card/85 p-6 sm:flex-row">
-        <div>
-          <p className="text-xl font-semibold text-foreground">
-            Ready for the next build step.
-          </p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Public index pages can publish this packaged narrative when that
-            product surface is implemented.
-          </p>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          {indexHref ? (
-            <Link href={indexHref} className={buttonVariants()}>
-              Preview public index page
-            </Link>
-          ) : (
-            <Button disabled>Preview public index page</Button>
-          )}
-          <Link
-            href="/radar"
-            className={buttonVariants({ variant: "outline", className: "px-5" })}
-          >
-            Back to radar
-          </Link>
-        </div>
+  const slippageLabel =
+    executionReadiness?.weightedSlippagePct !== undefined
+      ? formatPct(executionReadiness.weightedSlippagePct)
+      : "—";
+
+  const content = (
+    <div className="space-y-2">
+      <p className="px-1 text-xs leading-5 text-muted-foreground">
+        SoDEX route = legs with a mapped market and reference price. Depth and slippage need visible ask
+        liquidity; thin books may still allow limit orders. CEX vol is SoSoValue spot context, not on-chain
+        fill size.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2 px-1">
+        {executionReadiness ? <SodexNetworkBadge network={executionReadiness.network} /> : null}
+        <Badge variant="muted">{hasLiveData ? "Live book" : "Pending"}</Badge>
+        <Button
+          className="ml-auto h-8"
+          variant="outline"
+          size="sm"
+          disabled={!hasLiveData}
+          onClick={() => setShowRoute((value) => !value)}
+        >
+          {showRoute ? "Hide route" : "Route table"}
+        </Button>
       </div>
-    </section>
+
+      <StatGrid columns={4}>
+        <StatCell
+          label="Route"
+          help="Legs with SoDEX market + price"
+          value={hasLiveData ? `${executionReadiness?.tradableCount}/${executionReadiness?.totalLegs}` : "—"}
+        />
+        <StatCell
+          label="Depth"
+          help="Total ask liquidity on book"
+          value={hasLiveData ? formatUsd(executionReadiness?.totalAskDepthUsd ?? 0) : "—"}
+        />
+        <StatCell
+          label="Slippage"
+          help="Weighted vs top-of-book asks"
+          value={hasLiveData ? slippageLabel : "—"}
+        />
+        <StatCell
+          label="CEX vol"
+          help="24h SoSoValue spot turnover"
+          value={hasLiquidityData ? formatUsdCompact(liquidityContext?.aggregateTurnover24h) : "—"}
+        />
+      </StatGrid>
+
+      {hasLiveData && executionReadiness ? (
+        <CoverageChart
+          title="Coverage"
+          titleHint="Routable vs missing legs"
+          segments={[
+            {
+              id: "tradable",
+              label: "OK",
+              value: executionReadiness.tradableCount,
+              color: "var(--chart-strong)",
+            },
+            {
+              id: "missing",
+              label: "Missing",
+              value: Math.max(0, executionReadiness.totalLegs - executionReadiness.tradableCount),
+              color: "var(--chart-weak)",
+            },
+          ]}
+        />
+      ) : null}
+
+      {showRoute && hasLiveData && executionReadiness ? (
+        <div className="overflow-x-auto rounded-lg bg-card">
+          <table className="min-w-full text-left text-xs">
+            <thead className="text-muted-foreground">
+              <tr className="border-b border-border">
+                <th className="px-3 py-2 font-medium">Asset</th>
+                <th className="px-3 py-2 font-medium">Wt</th>
+                <th className="px-3 py-2 font-medium">Market</th>
+                <th className="px-3 py-2 font-medium">Notional</th>
+                <th className="px-3 py-2 font-medium">Depth</th>
+                <th className="px-3 py-2 font-medium">Slip</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {executionReadiness.legs.map((leg) => (
+                <tr key={leg.asset} className="border-b border-border/60 last:border-0">
+                  <td className="px-3 py-2.5 font-medium text-foreground">{leg.asset}</td>
+                  <td className="px-3 py-2.5 tabular-nums text-muted-foreground">{leg.weight}%</td>
+                  <td className="px-3 py-2.5 text-muted-foreground">
+                    {leg.displayName ?? leg.sodexSymbol ?? "—"}
+                  </td>
+                  <td className="px-3 py-2.5 tabular-nums text-muted-foreground">
+                    {formatUsd(leg.legNotionalUsd)}
+                  </td>
+                  <td className="px-3 py-2.5 tabular-nums text-muted-foreground">
+                    {formatUsd(leg.askDepthUsd)}
+                  </td>
+                  <td className="px-3 py-2.5 tabular-nums text-muted-foreground">
+                    {formatPct(leg.slippagePct)}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <Badge variant={leg.tradable ? "positive" : "outline"}>
+                      {legStatusLabel(leg)}
+                    </Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
   );
+
+  if (embedded) return content;
+  return <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">{content}</section>;
 }

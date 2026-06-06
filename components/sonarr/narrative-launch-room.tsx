@@ -10,7 +10,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 
 type WeightedAsset = {
   asset: string;
@@ -30,30 +29,91 @@ type NarrativeLaunchRoomProps = {
   methodology: string[];
 };
 
-function basketText(weightedAssets: WeightedAsset[]) {
+function basketLine(weightedAssets: WeightedAsset[]) {
+  return weightedAssets.map((asset) => `${asset.asset} ${asset.weight}%`).join(" · ");
+}
+
+function basketTable(weightedAssets: WeightedAsset[]) {
   return weightedAssets
-    .map((asset) => `${asset.asset} ${asset.weight}%`)
-    .join(", ");
+    .map((asset) => `${asset.asset.padEnd(6)} ${asset.weight}%`)
+    .join("\n");
+}
+
+function themeLabel(narrativeTitle: string) {
+  return narrativeTitle.replace(/\s+Momentum$/i, "").trim();
+}
+
+function latestHeadline(evidenceBullets: string[]) {
+  const latest = evidenceBullets.find((bullet) => bullet.startsWith("Latest:"));
+  return latest ? latest.replace(/^Latest:\s*/, "").trim() : undefined;
+}
+
+function headlineCountLine(evidenceBullets: string[]) {
+  const line = evidenceBullets.find((bullet) => bullet.includes("headlines"));
+  if (line) {
+    return line.replace(/\.$/, "");
+  }
+
+  const quiet = evidenceBullets.find((bullet) =>
+    bullet.toLowerCase().includes("few supporting headlines"),
+  );
+  return quiet ?? "Headline flow is still thin — treat this as an early watchlist theme.";
+}
+
+function searchActivityLine(evidenceBullets: string[]) {
+  const line = evidenceBullets.find((bullet) => bullet.includes("search hits"));
+  if (!line) {
+    return "News search activity around this theme picked up recently.";
+  }
+
+  return line
+    .replace(/ search hits for /i, " is showing elevated news search volume for ")
+    .replace(/\.$/, "");
+}
+
+function convictionPhrase(signalScore: number, confidence: number) {
+  if (signalScore >= 84 && confidence >= 70) {
+    return "The theme looks crowded in headlines — high attention, not a guarantee of follow-through.";
+  }
+
+  if (signalScore >= 68) {
+    return "Attention is building, but I'd still treat this as a watchlist until price and flow confirm.";
+  }
+
+  if (signalScore >= 50) {
+    return "Early-stage narrative heat — interesting setup, not yet a high-conviction basket.";
+  }
+
+  return "Still mostly noise in the feed — worth tracking, not worth forcing size.";
 }
 
 function buildThesis({
   narrativeTitle,
   summary,
-  signalScore,
-  confidence,
+  whyNow,
   risk,
   topAssets,
   weightedAssets,
 }: NarrativeLaunchRoomProps) {
-  return `${narrativeTitle} is a SoNarr-generated index thesis built from narrative intelligence and SoSoValue-powered market signals.
+  const theme = themeLabel(narrativeTitle);
 
-The narrative is forming around this read: ${summary}
+  return `${theme} Index — draft one-pager
 
-SoNarr currently scores the signal at ${signalScore}/100 with ${confidence}/100 confidence. The proposed basket focuses on ${topAssets.slice(0, 3).join(", ")} and packages the theme as ${narrativeTitle} Index.
+What it is
+${summary}
 
-Suggested construction: ${basketText(weightedAssets)}.
+Why we're looking at it now
+${whyNow}
 
-Risk view: ${risk}. This thesis is a research workflow and launch kit, not financial advice. No returns are guaranteed and no trades are placed automatically.`;
+How the basket is built
+An equal-risk thematic slice across ${topAssets.slice(0, 3).join(", ")}, with weights tilted toward the names most tied to the narrative:
+${basketTable(weightedAssets)}
+
+How to use this
+Think of it as a research basket for tracking a theme — not a finished product page. Revisit weights when news flow fades or concentration gets too high.
+
+Risk
+${risk} thematic exposure. Narrative trades can unwind quickly when headlines rotate. This is research material, not investment advice.`;
 }
 
 function buildMemo({
@@ -64,62 +124,85 @@ function buildMemo({
   evidenceBullets,
   weightedAssets,
   methodology,
+  signalScore,
+  confidence,
 }: NarrativeLaunchRoomProps) {
-  return `Market narrative
-${narrativeTitle}: ${summary}
+  const theme = themeLabel(narrativeTitle);
+  const headline = latestHeadline(evidenceBullets);
 
-Why now
+  return `${theme} — internal research memo (draft)
+
+Executive summary
+${summary}
+
+Catalyst
 ${whyNow}
 
-Index construction
-Suggested basket: ${basketText(weightedAssets)}. Assets are weighted by narrative relevance, capped concentration, and suitability for future execution review.
+What we're seeing in the feed
+• ${searchActivityLine(evidenceBullets)}
+• ${headlineCountLine(evidenceBullets)}${headline ? `\n• Lead headline: “${headline}”` : ""}
 
-Methodology
-${methodology.join(" ")}
+Conviction check
+${convictionPhrase(signalScore, confidence)} (tracking score ${signalScore}/100, data confidence ${confidence}/100.)
 
-Risk view
-${risk}. Key checks: ${evidenceBullets.slice(0, 2).join(" ")}
+Proposed basket
+Asset    Weight
+${basketTable(weightedAssets)}
 
-Next step
-Review the launch package, confirm methodology, and prepare a public index page. This is not financial advice and no trade is placed.`;
+Construction notes
+${methodology
+  .map((line) => line.replace(/^Max single asset weight: 30%\.$/, "Cap any single name at 30%."))
+  .join("\n")}
+
+Risks
+• ${risk} — thematic baskets correlate in drawdowns.
+• Headline-driven themes can reverse without warning.
+• Liquidity and venue coverage still need a separate execution review.
+
+Next week
+Refresh headline evidence, sanity-check weights, and only size up if the story is still showing up in primary sources.
+
+Disclaimer: research workflow only. Not investment advice.`;
 }
 
 function buildThread({
   narrativeTitle,
   summary,
-  signalScore,
-  confidence,
+  whyNow,
   risk,
+  evidenceBullets,
   weightedAssets,
+  topAssets,
 }: NarrativeLaunchRoomProps) {
-  return `1/ ${narrativeTitle} is showing enough signal to package as a structured index idea.
+  const theme = themeLabel(narrativeTitle);
+  const headline = latestHeadline(evidenceBullets);
 
-2/ SoNarr detected this narrative from SoSoValue-powered feeds and search: ${summary}
+  return `1/ ${theme} is showing up again in crypto news flows — worth mapping as a basket instead of chasing one ticker.
 
-3/ Current signal score: ${signalScore}/100. Data confidence: ${confidence}/100.
+2/ Quick read: ${summary}
 
-4/ Suggested basket preview: ${basketText(weightedAssets)}.
+3/ Why now: ${whyNow}
 
-5/ Risk note: ${risk}. This is a research workflow, not financial advice.
+4/ ${searchActivityLine(evidenceBullets)}.${headline ? `\n\nLead story this week: “${headline}”` : ""}
 
-6/ Public index page placeholder: coming next. No trades are placed automatically.`;
+5/ If I wanted thematic exposure without picking a single winner, I'd start here:
+${basketLine(weightedAssets)}
+
+6/ Core names: ${topAssets.slice(0, 3).join(", ")}. Weights favor narrative relevance, not market-cap rank.
+
+7/ Risk: ${risk.toLowerCase()} conviction on a headline theme — these moves fade fast when the feed moves on.
+
+8/ This is how I research themes, not a buy call. Full memo + rebalance rules in the doc. NFA 🧵`;
 }
 
-function buildRebalancePolicy() {
-  return `Review weekly.
-Rebalance if signal score changes by 20%+.
-Reduce exposure if confidence falls below 60.
-Cap any single asset at 30%.
-Require execution confirmation before trading.`;
-}
+function buildIndexRules() {
+  return `Index maintenance (draft)
 
-function buildExecutionChecklist() {
-  return `Confirm index weights.
-Check SoDEX orderbook depth.
-Estimate slippage.
-Confirm supported markets.
-Require user approval.
-No trade is placed automatically.`;
+• Review the basket weekly against fresh headlines and price action.
+• Rebalance if thematic strength shifts materially (~20% in our tracking score).
+• Trim any single name above 30% weight.
+• Pause adds if headline evidence dries up or liquidity thins on key venues.
+• Keep execution (fills, slippage, venue mapping) separate from publishing copy.`;
 }
 
 function CopyButton({ label, text }: { label: string; text: string }) {
@@ -150,58 +233,105 @@ function TextBlock({ text }: { text: string }) {
   );
 }
 
-export function NarrativeLaunchRoom(props: NarrativeLaunchRoomProps) {
+function LaunchAssetAccordion({
+  title,
+  description,
+  action,
+  text,
+  defaultOpen = false,
+}: {
+  title: string;
+  description: string;
+  action: string;
+  text: string;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className="rounded-xl border border-border bg-background/50">
+      <div className="flex items-start justify-between gap-3 p-4">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="min-w-0 flex-1 text-left"
+        >
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+        </button>
+        <CopyButton label={action} text={text} />
+      </div>
+      {open ? (
+        <div className="border-t border-border px-4 pb-4">
+          <TextBlock text={text} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function NarrativeLaunchRoom({
+  compact = false,
+  embedded = false,
+  ...props
+}: NarrativeLaunchRoomProps & {
+  compact?: boolean;
+  embedded?: boolean;
+}) {
   const thesis = buildThesis(props);
   const memo = buildMemo(props);
   const thread = buildThread(props);
-  const rebalancePolicy = buildRebalancePolicy();
-  const executionChecklist = buildExecutionChecklist();
+  const indexRules = buildIndexRules();
 
   const launchAssets = [
     {
-      title: "Index Thesis",
-      description: "Public-facing thesis for the generated narrative index.",
-      action: "Copy thesis",
+      title: "Index one-pager",
+      description: "Short public-facing description of the thematic basket.",
+      action: "Copy one-pager",
       text: thesis,
     },
     {
-      title: "Research Memo",
-      description: "Operator memo for research, construction, risk, and next step.",
+      title: "Research memo",
+      description: "Internal note with catalyst, evidence, weights, and risks.",
       action: "Copy memo",
       text: memo,
     },
     {
-      title: "X Thread",
-      description: "Professional launch thread for explaining the narrative.",
+      title: "X thread",
+      description: "Thread draft you can edit before posting — reads like analyst research, not product UI.",
       action: "Copy thread",
       text: thread,
     },
   ];
 
-  return (
-    <section className="mx-auto max-w-7xl px-6 pb-10 lg:px-8">
-      <Card className="overflow-hidden bg-card/85">
-        <CardHeader className="border-b border-border p-6 sm:p-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <Badge>Launch kit</Badge>
-              <CardTitle className="mt-5 text-3xl sm:text-4xl">
-                Narrative Launch Room
-              </CardTitle>
-              <p className="mt-4 max-w-3xl text-base leading-7 text-muted-foreground">
-                SoNarr turns narrative intelligence and index construction into
-                launch-ready business assets for a one-person finance desk.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border bg-background/60 p-4">
-              <p className="text-sm text-muted-foreground">Workflow</p>
-              <p className="mt-2 font-semibold text-foreground">
-                Data to narrative to index to launch package
-              </p>
-            </div>
+  const content = (
+    <Card className="overflow-hidden bg-card/85">
+      <CardHeader className={compact ? "border-b border-border p-4 sm:p-5" : "border-b border-border p-6 sm:p-8"}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <Badge variant="outline">Copy kit</Badge>
+            <CardTitle className={compact ? "mt-3 text-xl" : "mt-5 text-3xl sm:text-4xl"}>
+              Launch room
+            </CardTitle>
+            <p className={compact ? "mt-2 text-sm text-muted-foreground" : "mt-4 max-w-3xl text-base leading-7 text-muted-foreground"}>
+              Drafts for publishing and note-taking. Pulls from this narrative&apos;s headlines
+              and basket weights — not from SoDEX order status or fills.
+            </p>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-6 p-6 sm:p-8">
+        </div>
+      </CardHeader>
+      <CardContent className={compact ? "space-y-4 p-4 sm:p-5" : "space-y-6 p-6 sm:p-8"}>
+        {compact ? (
+          <div className="space-y-2">
+            {launchAssets.map((asset, index) => (
+              <LaunchAssetAccordion
+                key={asset.title}
+                {...asset}
+                defaultOpen={index === 0}
+              />
+            ))}
+          </div>
+        ) : (
           <div className="grid gap-4 lg:grid-cols-1">
             {launchAssets.map((asset) => (
               <Card key={asset.title} className="bg-background/50 shadow-none">
@@ -222,41 +352,31 @@ export function NarrativeLaunchRoom(props: NarrativeLaunchRoomProps) {
               </Card>
             ))}
           </div>
+        )}
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card className="bg-background/50 shadow-none">
-              <CardHeader>
-                <CardTitle>Rebalance Policy</CardTitle>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Rules for keeping the index methodology disciplined.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <TextBlock text={rebalancePolicy} />
-              </CardContent>
-            </Card>
+        <Card className="bg-background/50 shadow-none">
+          <CardHeader>
+            <CardTitle>Index maintenance rules</CardTitle>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Operator checklist for keeping the thematic basket disciplined over time.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <TextBlock text={indexRules} />
+          </CardContent>
+        </Card>
 
-            <Card className="bg-background/50 shadow-none">
-              <CardHeader>
-                <CardTitle>Execution Checklist</CardTitle>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Preview-only workflow before any future execution integration.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <TextBlock text={executionChecklist} />
-              </CardContent>
-            </Card>
-          </div>
-
-          <Separator />
-
-          <p className="text-sm leading-6 text-muted-foreground">
-            This is a launch kit and research workflow, not financial advice. No
-            trades are placed.
-          </p>
-        </CardContent>
-      </Card>
-    </section>
+        <p className="text-sm leading-6 text-muted-foreground">
+          Edit before sharing. Research drafts only — not financial advice and not trade
+          instructions.
+        </p>
+      </CardContent>
+    </Card>
   );
+
+  if (embedded) {
+    return content;
+  }
+
+  return <section className="mx-auto max-w-7xl px-6 pb-10 lg:px-8">{content}</section>;
 }

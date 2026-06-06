@@ -1,5 +1,7 @@
 # SoNarr Wave 1 Updates
 
+> Continued in [Wave 2 updates](./wave-2-updates.md).
+
 Wave 1 proves the core SoNarr loop: live SoSoValue market intelligence can be transformed into narrative conviction, index-product thinking, AI-assisted research, and launch-ready business assets for a one-person finance desk.
 
 SoNarr is not positioned as a chatbot or a generic news feed analyzer. It is a product workflow:

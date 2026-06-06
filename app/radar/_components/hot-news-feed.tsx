@@ -8,40 +8,36 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { formatRelativeTime, type NewsItem } from "@/lib/sosovalue";
+import { cn } from "@/lib/utils";
 
 import { shortText } from "./radar-utils";
 
-export function HotNewsFeed({ hotNews }: { hotNews: NewsItem[] }) {
+export function HotNewsFeed({
+  hotNews,
+  className,
+}: {
+  hotNews: NewsItem[];
+  className?: string;
+}) {
   const loopNews = [...hotNews, ...hotNews];
 
   return (
-    <Card id="hot-feed" className="overflow-hidden bg-card/80">
-      <CardHeader className="">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className=" flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Flame className="h-5 w-5" />
-            </div>
-
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                Live hot news tape
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
-                </span>
-              </CardTitle>
-
-              <p className="text-sm text-muted-foreground">
-                A continuous market feed powered by SoSovalue.
-              </p>
-            </div>
-          </div>
-
-        </div>
+    <Card id="hot-feed" className={cn("flex h-full min-h-0 flex-col overflow-hidden", className)}>
+      <CardHeader className="shrink-0 border-b border-border py-3">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <Flame className="h-4 w-4 text-primary" />
+          Hot news
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-positive opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-positive" />
+          </span>
+        </CardTitle>
+        <p className="text-xs leading-5 text-muted-foreground">
+          Scrolling tape from SoSoValue — themes on the right map to these headlines.
+        </p>
       </CardHeader>
 
-      <CardContent className="relative h-[560px] overflow-hidden p-0">
+      <CardContent className="relative min-h-[420px] flex-1 overflow-hidden p-0 lg:min-h-0">
         {hotNews.length === 0 ? (
           <div className="flex h-full items-center justify-center p-8 text-center">
             <div className="max-w-sm">
@@ -55,11 +51,11 @@ export function HotNewsFeed({ hotNews }: { hotNews: NewsItem[] }) {
             </div>
           </div>
         ) : null}
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-16 bg-gradient-to-b from-card to-transparent" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-16 bg-gradient-to-t from-card to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-12 bg-gradient-to-b from-card via-card/80 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-12 bg-gradient-to-t from-card via-card/80 to-transparent" />
 
         <div className="group h-full overflow-hidden">
-          <div className="animate-news-tape divide-y divide-border group-hover:[animation-play-state:paused]">
+          <div className="animate-news-tape divide-y divide-border pb-8 group-hover:[animation-play-state:paused]">
             {loopNews.map((item, index) => (
               <NewsTapeItem
                 key={`${item.id}-${index}`}

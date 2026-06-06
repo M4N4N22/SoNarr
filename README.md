@@ -1,342 +1,234 @@
 # SoNarr
 
-Narrative sonar for one-person on-chain finance businesses.
+Narrative sonar for one-person on-chain finance desks.
 
-SoNarr turns SoSoValue market intelligence into launch-ready narrative finance products. It helps a solo analyst, creator, trader, or small fund move from market noise to a validated narrative, suggested index basket, research brief, launch package, and future SoDEX execution-readiness workflow.
+SoNarr connects **SoSoValue market intelligence** to **SoDEX spot execution** in a single operator workflow: detect a narrative, validate it against live API evidence, size a weighted basket, review on-chain route readiness, and optionally submit wallet-signed limit orders on SoDEX testnet or mainnet.
 
-This is not a generic news reader and not an AI chatbot. The product thesis is sharper: SoNarr detects narratives first through SoSoValue evidence, then packages them into finance products that a one-person desk can publish, monitor, and eventually route toward execution.
+This is not a generic news reader or an AI chatbot. Evidence comes from SoSoValue and SoDEX first; Gemini synthesizes only after structured data exists. The UI is intentionally honest when APIs fail, rate-limit, or return partial payloads.
 
-## Product Loop
+**Docs:** [Wave 1](./docs/wave-1-updates.md) · [Wave 2](./docs/wave-2-updates.md)
+
+## Product loop
 
 ```txt
-                         SONARR WAVE 1 PRODUCT LOOP
-
-  +-------------------+      +-----------------------+
-  | SoSoValue Feeds   |      | SoSoValue Signal APIs |
-  | /news/hot         |      | market snapshots      |
-  | /news/search      |      | sector / spotlight    |
-  +---------+---------+      | index constituents    |
-            |                +-----------+-----------+
-            |                            |
-            v                            v
-  +--------------------------------------------------+
-  | Server-side Evidence Layer                       |
-  | - defensive parsers                              |
-  | - endpoint status objects                        |
-  | - live / partial / unavailable data modes        |
-  +-----------------------+--------------------------+
-                          |
-                          v
-  +--------------------------------------------------+
-  | Narrative Radar                                  |
-  | Detects live market narratives from hot news and |
-  | category search: AI, Bitcoin ETF, RWA, DeFi,     |
-  | Stablecoin, Layer 2.                             |
-  +-----------------------+--------------------------+
-                          |
-                          v
-  +--------------------------------------------------+
-  | Narrative Intelligence Page                      |
-  | Evidence -> Signal Stack -> Asset Map -> Index   |
-  | Product -> Risk Checks -> Rebalance Logic        |
-  +-----------------------+--------------------------+
-                          |
-                          v
-  +-------------------+      +-----------------------+
-  | AI Brief          |      | Launch Room           |
-  | bounded Gemini    |      | thesis, memo, thread, |
-  | synthesis only    |      | policy, checklist     |
-  +---------+---------+      +-----------+-----------+
-            |                            |
-            +-------------+--------------+
-                          |
-                          v
-  +--------------------------------------------------+
-  | Preview Surfaces                                  |
-  | Public index preview path + future SoDEX          |
-  | execution readiness. No real trades in Wave 1.    |
-  +--------------------------------------------------+
+SoSoValue (evidence)                    SoDEX (execution)
+  news · search · featured                  symbols · orderbooks · tickers
+  snapshots · klines · pairs                account balances · open orders
+  indices · ETF · macro · sector            EIP-712 batchNewOrder (wallet-signed)
+           \                                       /
+            v                                     v
+         Narrative Radar (/radar)  --------->  SoDEX entry (/sodex)
+                    |                              |
+                    v                              v
+         Narrative workspace (/narratives/[id])
+           Overview · Evidence · Index · Launch
+                    |
+                    +-- Launch: route check → wallet → preview → sign & submit
 ```
 
-## What Is Built
+Primary navigation is **Radar** (find themes) and **SoDEX** (route and trade the current basket).
 
-Wave 1 is a Web2 prototype for the SoSoValue Buildathon. It is designed to prove the core product behavior before adding wallets, persistence, or execution.
+## What is built
 
-- Landing page that positions SoNarr as narrative infrastructure for one-person finance desks.
-- Live-data-first Narrative Radar at `/radar`.
-- Narrative Intelligence pages at `/narratives/[id]`.
-- Server API route at `/api/radar` for radar data.
-- Server API route at `/api/ai/narrative-brief` for Gemini synthesis.
-- Multi-layer Narrative Signal Stack for conviction checks.
-- AI Narrative Brief that summarizes only provided evidence.
-- Narrative Launch Room that creates a launch kit from the detected narrative.
-- SoDEX execution preview panel that shows the future route without placing trades.
-- Endpoint diagnostics for partial or unavailable SoSoValue responses.
+### Wave 1
+
+Landing, Narrative Radar, narrative workspace foundation, multi-layer signal stack, Gemini narrative brief, Launch Room copy kit, endpoint diagnostics, live-data-first behavior.
+
+### Wave 2 (current)
+
+- **SoSoValue enrichment layer** — shared HTTP client, normalized parsers, 14+ documented endpoints (feeds, currencies, pairs, indices, ETF, macro).
+- **Eight-layer signal stack** — each layer capped or marked pending/unavailable when live data is missing.
+- **SoDEX execution readiness** — per-leg symbol mapping, orderbook depth, slippage where ask liquidity exists, CEX pair context from SoSoValue.
+- **Wallet-signed basket trading** — wagmi connect, account snapshot, dry-run preview, EIP-712 sign in wallet, server proxy to SoDEX (no trading keys in the browser).
+- **Operator-safe defaults** — testnet-first config, editable basket notional capped to faucet limits, explicit confirm before submit.
+- **AI execution brief** — Gemini summary bounded to parsed readiness JSON only.
+- **Trading-terminal UI** — flat surfaces, stat grids, separated Launch vs index design concerns.
+
+Full changelog: [docs/wave-2-updates.md](./docs/wave-2-updates.md).
 
 ## Architecture
 
-SoNarr uses Next.js App Router, TypeScript, Tailwind CSS, and small local UI primitives inspired by shadcn/ui. The important architectural choice is that SoSoValue evidence stays server-side, where API keys, parsers, endpoint health, and enrichment logic can be handled safely.
+Next.js App Router (TypeScript), server-side integration modules, wagmi/viem for wallet connect and signing. **All SoSoValue, Gemini, and SoDEX secrets stay on the server** unless the user signs with their own wallet.
 
 ```txt
-Browser UI
-  |
-  | renders server pages and calls AI brief on user action
-  v
-Next.js App Router
-  |
-  |-- app/page.tsx
-  |     Landing page
-  |
-  |-- app/radar/page.tsx
-  |     Server-rendered Narrative Radar
-  |
-  |-- app/narratives/[id]/page.tsx
-  |     Server-rendered Narrative Intelligence page
-  |
-  |-- app/api/radar/route.ts
-  |     JSON endpoint for radar data
-  |
-  `-- app/api/ai/narrative-brief/route.ts
-        Server-only Gemini route
+Browser
+  SiteHeader: Radar | SoDEX
+  Narrative workspace (sidebar + panel)
+  SodexTradingPanel (connect → preview → sign)
 
-Server Libraries
-  |
-  |-- lib/sosovalue.ts
-  |     Hot news/search client, defensive parsing,
-  |     narrative scoring, endpoint statuses
-  |
-  |-- lib/sonarr/signal-stack.ts
-  |     Market momentum, sector alignment,
-  |     index relevance, execution-readiness logic
-  |
-  |-- lib/ai/gemini.ts
-  |     Prompt construction, Gemini call,
-  |     structured JSON parsing, deterministic AI fallback
-  |
-  |-- lib/ai/brief-cache.ts
-  |     30-minute in-memory cache for generated briefs
-  |
-  `-- lib/types/data-source.ts
-        Shared live / partial / unavailable status model
+Next.js routes
+  /radar                          Live radar
+  /narratives/[id]?tab=launch     Workspace + SoDEX tab
+  /sodex                          Redirect to top narrative Launch tab
+  /api/radar                      Radar JSON
+  /api/execution/readiness        Basket readiness (notional-aware)
+  /api/sodex/account/[address]/*  Balances, orders, state, api-keys
+  /api/sodex/trade/basket         Dry-run plan build
+  /api/sodex/trade/basket/submit  Proxies wallet-signed batch order
+  /api/ai/narrative-brief         Gemini (evidence-bound)
+  /api/ai/execution-brief         Gemini (readiness-bound)
+
+Server libraries
+  lib/sosovalue/client.ts         Shared fetch, auth, response normalization
+  lib/sosovalue/enrichment.ts     Klines, pairs, ETF, macro, featured
+  lib/sosovalue.ts                Radar + narrative engine
+  lib/sodex/                      Market, account, readiness, signing, trading
+  lib/sonarr/basket-assets.ts     Narrative basket resolution (filters index/category tokens)
+  lib/sonarr/signal-stack.ts      Multi-layer conviction model
+  lib/types/data-source.ts        EndpointStatus + live/partial/unavailable
 ```
 
-## Folder Map
+## SoSoValue integration
 
-```txt
-next-app/
-  app/
-    page.tsx
-      Public landing page.
+SoSoValue is the **evidence and liquidity context layer**. SoNarr does not invent narrative scores from LLMs; it ranks category probes from live search and feed data, then enriches each narrative with market structure.
 
-    radar/
-      page.tsx
-        Server component for the live Narrative Radar.
-      _components/
-        radar-hero.tsx
-        hot-news-feed.tsx
-        narrative-checks.tsx
-        radar-status-note.tsx
-        radar-stats.tsx
-          Radar-specific UI sections.
+### Endpoints in production use
 
-    narratives/[id]/
-      page.tsx
-        Narrative Intelligence page. Resolves live radar data,
-        builds asset maps, weights, evidence, signal stack,
-        launch room inputs, and execution preview.
+| Area | Endpoint | Role |
+| --- | --- | --- |
+| Feeds | `GET /news/hot` | Radar tape + news heat |
+| Feeds | `GET /news/search` | Category narrative probes |
+| Feeds | `GET /news/featured` | Radar research strip |
+| Market | `GET /currencies` | Symbol → currency ID |
+| Market | `GET /currencies/{id}/market-snapshot` | Momentum layer |
+| Market | `GET /currencies/{id}/klines` | Historical trend (~7d) |
+| Market | `GET /currencies/{id}/pairs` | CEX liquidity vs SoDEX route |
+| Sector | `GET /currencies/sector-spotlight` | Sector alignment |
+| Indices | `GET /indices`, `/constituents`, `/market-snapshot` | Index relevance |
+| ETF | `GET /etfs/{ticker}/market-snapshot` | TradFi flow (Bitcoin ETF) |
+| Macro | `GET /macro/events` | Catalyst calendar |
 
-    api/
-      radar/route.ts
-        Returns live radar JSON with endpoint status metadata.
-      ai/narrative-brief/route.ts
-        Validates narrative input and calls Gemini server-side.
+Official reference: [SoSoValue API documentation](https://sosovalue.gitbook.io/soso-value-api-doc)
 
-  components/
-    sonarr/
-      narrative-signal-stack.tsx
-        UI for multi-layer narrative validation.
-      ai-narrative-brief.tsx
-        Client-triggered AI brief panel.
-      narrative-launch-room.tsx
-        Launch package generator and copy actions.
-      execution-preview-section.tsx
-        Preview-only SoDEX readiness panel.
-      endpoint-diagnostics.tsx
-        Endpoint health cards for honest data states.
+### Production patterns (SoSoValue)
 
-    ui/
-      badge.tsx
-      button.tsx
-      card.tsx
-      separator.tsx
-        Small local UI primitives.
+- **Single shared client** (`lib/sosovalue/client.ts`) — auth header injection, timeout-safe fetch, structured `EndpointStatus` on every call.
+- **Defensive parsing** — handles array and object response shapes (e.g. currency list payloads) without silently returning empty product state.
+- **Parallel enrichment** — narrative page loads snapshots, pairs, klines, and macro concurrently; failures degrade per-layer, not whole-page.
+- **React `cache()` on radar** — deduplicates hot feed + search fan-out within a request.
+- **No client-side API keys** — browser never sees `SOSOVALUE_API_KEY`.
+- **Honest UI states** — `live` / `partial` / `unavailable` rollups; endpoint diagnostics surface HTTP status, error type, and parse failures in development.
 
-  lib/
-    sosovalue.ts
-      SoSoValue feed/search integration and radar engine.
-    sonarr/signal-stack.ts
-      Signal-stack enrichment and scoring logic.
-    ai/gemini.ts
-      Gemini narrative synthesis.
-    ai/brief-cache.ts
-      In-memory AI brief cache.
-    types/data-source.ts
-      EndpointStatus and DataSourceState contracts.
+## SoDEX integration
 
-  docs/
-    wave-1-updates.md
-      Public Wave 1 progress summary.
-```
+SoDEX is the **on-chain spot execution layer**. SoNarr maps narrative basket weights to SoDEX USDC markets, estimates readiness from live orderbooks and tickers, and supports **wallet-signed** batch limit buys.
 
-## SoSoValue Integration
+Official reference: [SoDEX API documentation](https://sodex.com/documentation/api)
 
-SoSoValue is the evidence layer. SoNarr currently uses or wires against these endpoint families:
+### Read path (unsigned, server-proxied)
 
-- Feeds: `GET /news/hot` for current market heat.
-- Feeds: `GET /news/search` for narrative category probes.
-- Currency & Pairs: `/currencies/{currency_id}/market-snapshot`.
-- Currency & Pairs: `/currencies/{currency_id}/klines` as the next historical momentum path.
-- Currency & Pairs: `/currencies/{currency_id}/pairs` for future liquidity and routing checks.
-- Sector & Spotlight: `/currencies/sector-spotlight`.
-- SoSoValue Index: `/indices`.
-- SoSoValue Index: `/indices/{index_ticker}/constituents`.
-- SoSoValue Index: `/indices/{index_ticker}/market-snapshot`.
+| Step | SoDEX API | Purpose |
+| --- | --- | --- |
+| 1 | `GET /markets/symbols` | Resolve `AAVE/USDC`-style markets (incl. testnet `v*` tokens) |
+| 2 | `GET /markets/{symbol}/orderbook` | Ask depth, slippage simulation |
+| 3 | `GET /markets/tickers` | Reference prices when books are one-sided (common on testnet) |
+| 4 | Internal readiness | Weighted slippage, route table, tradable leg count |
 
-The current radar engine checks narratives such as AI, Bitcoin ETF, RWA, DeFi, Stablecoin, and Layer 2. The Signal Stack then attempts to validate the selected narrative across:
+`GET /api/execution/readiness?assets=AAVE:30,UNI:25&notionalUsd=500` — notional-aware leg sizing.
 
-- News heat: frequency and recency from SoSoValue hot news/search.
-- Market momentum: related asset snapshots when currency IDs are available.
-- Sector alignment: category matches from SoSoValue sector and spotlight data.
-- Index relevance: whether related assets appear in SoSoValue index constituents.
-- Execution readiness: preview-only SoDEX orderbook/slippage/basket-route path.
+### Account path (unsigned, address-scoped)
 
-Future SoSoValue expansion can add ETF flows, macro indicators, BTC treasury data, fundraising data, analysis charts, deeper historical windows, and richer index analytics.
+- `GET /accounts/{address}/balances` — spot balances (e.g. testnet `vUSDC`)
+- `GET /accounts/{address}/orders` — open orders
+- `GET /accounts/{address}/state` — account metadata
+- `GET /accounts/{address}/api-keys` — match wallet to SoDEX signing key name
 
-## Live Data Honesty
+Proxied at `/api/sodex/account/[address]/*` so the browser never calls SoDEX origins directly with custom headers.
 
-The main product flow is live-data-first and does not silently replace failed SoSoValue responses with fake product data.
+### Trade path (wallet-signed, production-intended)
 
-Every endpoint call is normalized into an `EndpointStatus`:
+1. User connects wallet on Launch tab; SoNarr reads balances and resolves API key where `publicKey` matches wallet (typically `default` on testnet).
+2. **Preview** — `POST /api/sodex/trade/basket` with `dryRun: true` builds limit prices from readiness reference prices; no credentials required.
+3. **Submit** — client signs EIP-712 `batchNewOrder` digest; `POST /api/sodex/trade/basket/submit` forwards signature + nonce. **Private keys never leave the wallet.**
 
-```txt
-EndpointStatus
-  name
-  endpoint
-  ok
-  status / statusText
-  errorType
-  message
-  durationMs
-  itemCount
-```
+Optional server env (`SODEX_API_*`) exists only as an **operator fallback** for scripted demos — not required for the normal Launch flow.
 
-These statuses roll up into a `DataSourceState`:
+### Basket asset selection (honest constraints)
 
-```txt
-live         all required responses worked and useful data was parsed
-partial      some useful live data was parsed, some endpoints failed
-unavailable  no useful live SoSoValue data was retrieved
-```
+- Narrative defaults (e.g. DeFi → AAVE, UNI, MKR) on **mainnet intent**.
+- **Testnet** uses a curated proxy list — SoDEX testnet lists ~32 markets; MKR/COMP/SNX are not listed. SoNarr documents this rather than faking coverage.
+- Category/index tickers from news (e.g. `DEFI`, `MAG7.SSI`) are **filtered out** of baskets; exact symbol matching prevents `DEFI` → `DEFIssi` fuzzy routes.
 
-This lets the UI show truthful states:
+### Testnet operator defaults
 
-- Live SoSoValue data.
-- Partial SoSoValue data.
-- SoSoValue data unavailable.
-- Endpoint diagnostics with HTTP status, error type, and short message.
+- `SODEX_NETWORK=testnet` (default)
+- Default basket notional **$500**; UI cap **$950** of **$1000** faucet vUSDC (fee headroom)
+- Limit-order readiness uses ticker/last when ask books are empty — labeled separately from market-buy slippage
 
-In development, safe logs include endpoint name, path, URL without secrets, HTTP status, duration, item count, response shape summary, error type, and message. API keys and authorization headers are never logged.
+## Live data honesty
 
-## AI Narrative Brief
+SoNarr does **not** backfill failed API responses with demo narratives, prices, or scores.
 
-Gemini is used as a synthesis layer, not an evidence source.
+Every external call produces an `EndpointStatus` (name, HTTP status, error type, duration, item count). Narrative and radar views roll up to:
 
-The model receives only existing narrative data:
+- **live** — required data parsed successfully
+- **partial** — some layers usable, some failed
+- **unavailable** — no trustworthy evidence base
 
-- title and summary
-- signal score and confidence
-- risk label
-- evidence bullets
-- top assets
-- generated index weights
-- source labels
+Signal stack layers show **Pending verification** or **Unavailable** instead of inflated scores. Execution legs distinguish **OK**, **Limit** (routable, thin book), and **Missing** (no market).
 
-The prompt explicitly tells Gemini not to invent facts, prices, assets, scores, or evidence; not to guarantee returns; and not to provide financial advice. The response is parsed as structured JSON for:
+## AI boundaries
 
-- executive summary
-- why now
-- bull case
-- bear case
-- index thesis
-- risk notes
-- suggested next step
-
-Generated briefs are cached in memory for 30 minutes to reduce unnecessary Gemini calls and rate-limit risk during demos. The cache stores brief content and metadata only, never secrets.
-
-## Narrative Signal Stack
-
-The Signal Stack is what makes SoNarr more than a news summarizer. It asks whether a detected narrative is backed by multiple SoSoValue-native layers:
-
-```txt
-News Heat
-  Is the narrative visible in current SoSoValue feed/search data?
-
-Market Momentum
-  Do related assets have live snapshot confirmation?
-
-Sector Alignment
-  Does the narrative map to SoSoValue-recognized sectors or spotlight categories?
-
-Index Relevance
-  Do related assets appear in SoSoValue index constituents?
-
-Execution Readiness
-  Is the basket ready for future SoDEX depth, slippage, and route checks?
-```
-
-When a layer cannot be verified, it is marked pending or unavailable instead of being inflated with fake confirmation. This is intentional: the product should help an operator trust what is known, see what is missing, and decide the next research step.
+Gemini receives **only** structured fields already computed (scores, weights, readiness legs, evidence bullets). Prompts forbid inventing prices, assets, or guarantees. Briefs cache in memory for 30 minutes — content only, never secrets.
 
 ## Setup
 
 ```bash
 npm install
+cp .env.example .env   # if present; otherwise create .env manually
 npm run dev
 ```
 
-Create a local `.env` file:
+Required:
 
 ```bash
 SOSOVALUE_API_KEY=your_sosovalue_key
 GEMINI_API_KEY=your_gemini_key
 ```
 
-Do not use `NEXT_PUBLIC_GEMINI_API_KEY`. SoSoValue and Gemini calls run server-side so keys are never exposed to the browser.
-
-Useful commands:
+SoDEX (defaults work for read + wallet submit on testnet):
 
 ```bash
-npm run lint
-npm run build
+SODEX_NETWORK=testnet
+# Optional overrides:
+# SODEX_BASKET_NOTIONAL_USD=500
+# SODEX_API_BASE_URL=https://testnet-gw.sodex.dev/api/v1/spot
 ```
 
-## Wave 1 Scope
+Optional operator-only server submit (not needed for wallet flow):
 
-Wave 1 is deliberately scoped as a Web2 prototype:
+```bash
+# SODEX_API_KEY_NAME=default
+# SODEX_API_PRIVATE_KEY=0x...
+# SODEX_ACCOUNT_ID=12345
+```
 
-- No smart contracts.
-- No wallet connection.
-- No real trading.
-- No custody.
-- No investment advice.
-- No SoDEX signed writes.
-- No automatic execution.
+**Do not** expose integration keys via `NEXT_PUBLIC_*`.
 
-The SoDEX panel is an execution-readiness preview. It shows where orderbook depth, slippage estimation, and basket execution routing will connect after the research and product-packaging loop is proven.
+### Production-grade checklist
+
+| Step | Command / practice |
+| --- | --- |
+| Typecheck + build | `npm run build` before deploy |
+| Lint | `npm run lint` |
+| Secrets | Server env only; rotate keys per environment |
+| Network | Set `SODEX_NETWORK=mainnet` only with funded mainnet account + reviewed basket |
+| Notional | Size basket ≤ spot balance; testnet cap enforced in UI |
+| Submit | Dry-run preview → checkbox confirm → wallet sign |
+| Observability | Endpoint diagnostics on partial/unavailable radar loads |
+| Rate limits | Radar cache + brief cache reduce duplicate upstream calls |
+
+## Scope and limits (honest)
+
+- Web2 prototype — no smart contracts, no custody, no persisted user portfolios.
+- Research and execution-readiness tooling — **not investment advice**.
+- Testnet liquidity is thin; slippage may read N/A while limit routes remain valid.
+- Mainnet submit requires real spot balance, correct API key registration, and operator judgment.
 
 ## Roadmap
 
-Wave 1 proves the core loop: SoSoValue evidence -> narrative detection -> signal validation -> index product idea -> AI brief -> launch kit -> execution preview.
-
-Wave 2 turns outputs into product surfaces: public index pages, persisted narrative products, stronger historical validation, richer methodology, shareable launch assets, and deeper SoSoValue coverage.
-
-Wave 3 connects the product layer to execution readiness: SoDEX orderbook checks, slippage estimation, basket routing, wallet-aware flows, and eventual on-chain product surfaces when the execution path is ready.
+| Wave | Focus |
+| --- | --- |
+| **1 (done)** | SoSoValue evidence → narrative → index idea → brief → launch kit |
+| **2 (current)** | SoDEX readiness + wallet-signed trading, enrichment APIs, execution brief, trading UI |
+| **3** | Public index pages, persistence, fill tracking, shareable launch assets |

@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 
 import { EndpointDiagnostics } from "@/components/sonarr/endpoint-diagnostics";
+import { SiteFooter } from "@/components/layout/site-footer";
+import { SiteHeader } from "@/components/layout/site-header";
+import { FeaturedResearchStrip } from "./_components/featured-research-strip";
 import { HotNewsFeed } from "./_components/hot-news-feed";
-import { NarrativeChecks } from "./_components/narrative-checks";
+import { NarrativeThemesPanel } from "./_components/narrative-checks";
 import { RadarHero } from "./_components/radar-hero";
-import { RadarNav } from "./_components/radar-nav";
 import { RadarStats } from "./_components/radar-stats";
 import { RadarStatusNote } from "./_components/radar-status-note";
+import { getFeaturedNews } from "@/lib/sosovalue/enrichment";
 import { getRadarData } from "@/lib/sosovalue";
 
 export const dynamic = "force-dynamic";
@@ -18,9 +21,11 @@ export const metadata: Metadata = {
 };
 
 export default async function RadarPage() {
-  const radar = await getRadarData();
+  const [radar, featuredNews] = await Promise.all([
+    getRadarData(),
+    getFeaturedNews(6),
+  ]);
   const topNarrative = radar.narratives[0];
-  const remainingNarratives = radar.narratives.slice(1);
   const hotMentions = topNarrative
     ? radar.hotNews.filter((item) =>
         [item.title, item.content, ...item.tags]
@@ -32,42 +37,30 @@ export default async function RadarPage() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_15%_8%,rgba(43,68,231,0.2),transparent_30rem),radial-gradient(circle_at_85%_12%,rgba(255,255,255,0.07),transparent_26rem)]" />
+      <SiteHeader variant="app" />
 
-      <RadarNav />
-
-      <section className="mx-auto max-w-7xl px-6 py-10 lg:px-8">
-        <RadarHero radar={radar} topNarrative={topNarrative} />
+      <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <RadarHero radar={radar} />
         <RadarStatusNote radar={radar} />
         <RadarStats hotMentions={hotMentions} radar={radar} />
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-6 px-6 pb-10 lg:grid-cols-[1.15fr_0.85fr] lg:px-8">
-        <HotNewsFeed hotNews={radar.hotNews} />
+      <section className="mx-auto grid max-w-7xl gap-5 px-4 pb-10 sm:px-6 lg:grid-cols-[0.92fr_1.08fr] lg:items-stretch lg:gap-6 lg:px-8">
+        <HotNewsFeed hotNews={radar.hotNews} className="min-h-0" />
+        <NarrativeThemesPanel narratives={radar.narratives} className="min-h-0" />
+      </section>
 
-        <div className="space-y-6" id="narratives">
-          <NarrativeChecks
-            title="Top narrative"
-            description="The strongest current category check from SoSoValue-powered search."
-            narratives={topNarrative ? [topNarrative] : []}
-          />
-        </div>
+      <section className="mx-auto max-w-7xl px-4 pb-10 sm:px-6 lg:px-8">
+        <FeaturedResearchStrip items={featuredNews.data} />
       </section>
 
       {radar.mode !== "live" ? (
-        <section className="mx-auto max-w-7xl px-6 pb-10 lg:px-8">
+        <section className="mx-auto max-w-7xl px-4 pb-10 sm:px-6 lg:px-8">
           <EndpointDiagnostics endpoints={radar.endpoints} />
         </section>
       ) : null}
 
-      <section className="mx-auto max-w-7xl px-6 pb-10 lg:px-8">
-        <NarrativeChecks
-          title="Other narrative checks"
-          description="Additional category probes from GET /news/search, ranked after the current leader."
-          narratives={remainingNarratives}
-          variant="grid"
-        />
-      </section>
+      <SiteFooter />
     </main>
   );
 }
