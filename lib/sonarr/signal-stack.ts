@@ -1,16 +1,33 @@
+import type { BasketExecutionReadiness } from "@/lib/sodex";
 import type { CurrencyRef, NarrativeSignal, RadarData } from "@/lib/sosovalue";
 import {
-  errorTypeFromHttpStatus,
-  logEndpointStatus,
-  responseShapeSummary,
-  type EndpointResult,
-  type EndpointStatus,
-} from "@/lib/types/data-source";
+  asNumber,
+  asString,
+  requestSoSoValue,
+  responsePayload,
+  responseRecord,
+} from "@/lib/sosovalue/client";
+import {
+  formatUsdCompact,
+  getListedCurrencies,
+  resolveListedCurrency,
+  type BasketLiquidityContext,
+  type EtfMarketSnapshot,
+  type IndexMarketSnapshot,
+  type KlineTrend,
+  type MacroEventDay,
+} from "@/lib/sosovalue/enrichment";
+import type { EndpointResult, EndpointStatus } from "@/lib/types/data-source";
 
 export const SIGNAL_STACK_ENDPOINTS = {
+  currencyList: "/currencies",
+  currencyKlines: "/currencies/{currency_id}/klines",
+  etfMarketSnapshot: "/etfs/{ticker}/market-snapshot",
+  featuredNews: "/news/featured",
   indexConstituents: "/indices/{index_ticker}/constituents",
   indexList: "/indices",
   indexMarketSnapshot: "/indices/{index_ticker}/market-snapshot",
+  macroEvents: "/macro/events",
   marketSnapshot: "/currencies/{currency_id}/market-snapshot",
   sectorSpotlight: "/currencies/sector-spotlight",
   tradingPairs: "/currencies/{currency_id}/pairs",
@@ -65,8 +82,14 @@ type WeightedAsset = {
 
 type BuildSignalStackInput = {
   assets: string[];
+  etfSnapshot?: EtfMarketSnapshot;
   evidenceBullets: string[];
+  executionReadiness?: BasketExecutionReadiness;
   indexConstituents?: IndexConstituent[];
+  indexSnapshots?: IndexMarketSnapshot[];
+  klineTrends?: KlineTrend[];
+  liquidityContext?: BasketLiquidityContext;
+  macroEvents?: MacroEventDay[];
   marketSnapshots?: MarketSnapshot[];
   narrative: NarrativeSignal;
   radar: RadarData;
@@ -84,39 +107,6 @@ function clampScore(score: number) {
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function asNumber(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-
-  return undefined;
-}
-
-function asString(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (typeof value === "number" || typeof value === "bigint") {
-    return String(value);
-  }
-
-  return undefined;
-}
-
-function responsePayload(value: unknown) {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-
-  return isRecord(value.data) ? value.data : value;
 }
 
 function sourceMode(radar: RadarData) {
@@ -146,99 +136,227 @@ function uniqueCurrencyRefs(narrative: NarrativeSignal) {
     }
   }
 
-  return Array.from(byId.values()).slice(0, 4);
+  return Array.from(byId.values());
 }
 
-async function requestSoSoValue(path: string, name: string): Promise<EndpointResult<unknown>> {
-  const startedAt = Date.now();
-  const apiKey = process.env.SOSOVALUE_API_KEY;
-  const endpoint = `GET ${path}`;
-  const baseUrl =
-    process.env.SOSOVALUE_API_BASE_URL ?? "https://openapi.sosovalue.com/api/v1";
-  const url = `${baseUrl}${path}`;
+async function resolveCurrencyRefs(narrative: NarrativeSignal, assets: string[]) {
+  const listed = await getListedCurrencies();
+  const byId = new Map<string, CurrencyRef>();
 
-  if (!apiKey) {
-    const status: EndpointStatus = {
-      name,
-      endpoint,
-      ok: false,
-      errorType: "missing_api_key",
-      message: "Missing SOSOVALUE_API_KEY. Add the key to enable live SoSoValue enrichment.",
-      durationMs: Date.now() - startedAt,
-      itemCount: 0,
-    };
-    logEndpointStatus({ status, url });
-    return { ok: false, status };
+  for (const currency of uniqueCurrencyRefs(narrative)) {
+    if (currency.id) {
+      byId.set(currency.id, currency);
+    }
   }
 
-  try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "x-soso-api-key": apiKey,
-      },
-      next: { revalidate: 60 },
-    });
-    const durationMs = Date.now() - startedAt;
+  const endpoints: EndpointStatus[] = [...listed.endpoints];
 
-    if (!response.ok) {
-      const status: EndpointStatus = {
-        name,
-        endpoint,
-        ok: false,
-        status: response.status,
-        statusText: response.statusText,
-        errorType: errorTypeFromHttpStatus(response.status),
-        message: `SoSoValue returned ${response.status} ${response.statusText || ""}`.trim(),
-        durationMs,
-        itemCount: 0,
-      };
-      logEndpointStatus({ status, url });
-      return { ok: false, status };
+  for (const symbol of assets.slice(0, 4)) {
+    const alreadyResolved = Array.from(byId.values()).some(
+      (currency) => currency.symbol.toUpperCase() === symbol.toUpperCase(),
+    );
+
+    if (alreadyResolved) {
+      continue;
     }
 
-    try {
-      const data: unknown = await response.json();
-      const status: EndpointStatus = {
-        name,
-        endpoint,
-        ok: true,
-        status: response.status,
-        statusText: response.statusText,
-        errorType: "unknown",
-        message: "SoSoValue endpoint responded successfully.",
-        durationMs,
-      };
-      logEndpointStatus({ status, url, shape: responseShapeSummary(data) });
-      return { ok: true, data, status };
-    } catch {
-      const status: EndpointStatus = {
-        name,
-        endpoint,
-        ok: false,
-        status: response.status,
-        statusText: response.statusText,
-        errorType: "invalid_response",
-        message: "SoSoValue response could not be parsed as JSON.",
-        durationMs,
-        itemCount: 0,
-      };
-      logEndpointStatus({ status, url });
-      return { ok: false, status };
+    const resolved = resolveListedCurrency(symbol, listed.data);
+
+    if (resolved) {
+      byId.set(resolved.id, {
+        id: resolved.id,
+        symbol: resolved.symbol,
+        name: resolved.name,
+      });
     }
-  } catch {
-    const status: EndpointStatus = {
-      name,
-      endpoint,
-      ok: false,
-      errorType: "network_error",
-      message: "Network error while contacting SoSoValue.",
-      durationMs: Date.now() - startedAt,
-      itemCount: 0,
-    };
-    logEndpointStatus({ status, url });
-    return { ok: false, status };
   }
+
+  return {
+    currencies: Array.from(byId.values()).slice(0, 4),
+    endpoints,
+  };
+}
+
+async function requestSoSoValueLegacy(path: string, name: string): Promise<EndpointResult<unknown>> {
+  return requestSoSoValue(path, name);
+}
+
+function formatPct(value: number) {
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function buildHistoricalTrendLayer({
+  endpointStatuses,
+  klineTrends,
+  topAssets,
+}: {
+  endpointStatuses: EndpointStatus[];
+  klineTrends: KlineTrend[];
+  topAssets: string[];
+}): SignalStackLayer {
+  if (klineTrends.length === 0) {
+    const failedEndpoint = endpointStatuses.find((status) =>
+      status.endpoint.includes("/klines"),
+    );
+
+    return {
+      name: "Historical trend",
+      status: failedEndpoint ? "Unavailable" : "Pending verification",
+      description: "Checks whether related assets show a positive 7-day trend from SoSoValue daily klines.",
+      explanation: failedEndpoint
+        ? `${failedEndpoint.name} returned ${failedEndpoint.errorType}.`
+        : "Historical kline confirmation is pending for the basket assets resolved through SoSoValue currency IDs.",
+      evidence: [
+        `Assets queued for kline checks: ${topAssets.join(", ")}.`,
+        `Endpoint: ${SIGNAL_STACK_ENDPOINTS.currencyKlines}.`,
+      ],
+      sourceLabel: "SoSoValue historical klines",
+      dataMode: failedEndpoint ? "Unavailable" : "Pending",
+    };
+  }
+
+  const averageTrend =
+    klineTrends.reduce((sum, trend) => sum + (trend.change7dPct ?? 0), 0) /
+    klineTrends.length;
+  const positiveCount = klineTrends.filter(
+    (trend) => (trend.change7dPct ?? 0) > 0,
+  ).length;
+  const score = clampScore(40 + Math.abs(averageTrend) * 2 + positiveCount * 8);
+
+  return {
+    name: "Historical trend",
+    score,
+    description: "Checks whether related assets show a positive 7-day trend from SoSoValue daily klines.",
+    explanation:
+      "SoNarr confirmed daily kline history for basket assets and measured approximate 7-day price change.",
+    evidence: [
+      `Resolved ${klineTrends.length} asset kline trends from SoSoValue.`,
+      ...klineTrends.map(
+        (trend) =>
+          `${trend.symbol}: ${
+            trend.change7dPct === undefined ? "trend unavailable" : formatPct(trend.change7dPct)
+          } over ~7 days.`,
+      ),
+    ],
+    sourceLabel: "SoSoValue historical klines",
+    dataMode: "Live",
+  };
+}
+
+function buildTradFiFlowLayer({
+  endpointStatuses,
+  etfSnapshot,
+  narrative,
+}: {
+  endpointStatuses: EndpointStatus[];
+  etfSnapshot?: EtfMarketSnapshot;
+  narrative: NarrativeSignal;
+}): SignalStackLayer | null {
+  if (narrative.id !== "bitcoin-etf") {
+    return null;
+  }
+
+  if (!etfSnapshot) {
+    const failedEndpoint = endpointStatuses.find((status) =>
+      status.endpoint.includes("/etfs/"),
+    );
+
+    return {
+      name: "TradFi flow",
+      status: failedEndpoint ? "Unavailable" : "Pending verification",
+      description: "Checks whether spot Bitcoin ETF flow data supports the narrative.",
+      explanation: failedEndpoint
+        ? `${failedEndpoint.name} returned ${failedEndpoint.errorType}.`
+        : "ETF market snapshot data is pending for this narrative.",
+      evidence: [
+        `Endpoint: ${SIGNAL_STACK_ENDPOINTS.etfMarketSnapshot}.`,
+        "Target ETF ticker: IBIT.",
+      ],
+      sourceLabel: "SoSoValue ETF data",
+      dataMode: failedEndpoint ? "Unavailable" : "Pending",
+    };
+  }
+
+  const inflowScore =
+    etfSnapshot.netInflow !== undefined && etfSnapshot.netInflow > 0 ? 20 : 8;
+  const activityScore =
+    etfSnapshot.valueTraded !== undefined && etfSnapshot.valueTraded > 1_000_000_000
+      ? 15
+      : 8;
+  const score = clampScore(45 + inflowScore + activityScore);
+
+  return {
+    name: "TradFi flow",
+    score,
+    description: "Checks whether spot Bitcoin ETF flow data supports the narrative.",
+    explanation:
+      "SoNarr pulled live SoSoValue ETF market snapshot data to validate TradFi attention around the Bitcoin ETF narrative.",
+    evidence: [
+      `${etfSnapshot.ticker} daily net inflow: ${
+        etfSnapshot.netInflow !== undefined
+          ? `$${Math.round(etfSnapshot.netInflow).toLocaleString()}`
+          : "unavailable"
+      }.`,
+      `${etfSnapshot.ticker} cumulative inflow: ${
+        etfSnapshot.cumInflow !== undefined
+          ? `$${Math.round(etfSnapshot.cumInflow).toLocaleString()}`
+          : "unavailable"
+      }.`,
+      `${etfSnapshot.ticker} value traded: ${
+        etfSnapshot.valueTraded !== undefined
+          ? `$${Math.round(etfSnapshot.valueTraded).toLocaleString()}`
+          : "unavailable"
+      }.`,
+    ],
+    sourceLabel: "SoSoValue ETF data",
+    dataMode: "Live",
+  };
+}
+
+function buildMacroCatalystLayer({
+  endpointStatuses,
+  macroEvents,
+  narrative,
+}: {
+  endpointStatuses: EndpointStatus[];
+  macroEvents: MacroEventDay[];
+  narrative: NarrativeSignal;
+}): SignalStackLayer {
+  const upcoming = macroEvents.slice(0, 3);
+
+  if (upcoming.length === 0) {
+    const failedEndpoint = endpointStatuses.find((status) =>
+      status.endpoint.includes("/macro/events"),
+    );
+
+    return {
+      name: "Macro catalysts",
+      status: failedEndpoint ? "Unavailable" : "Pending verification",
+      description: "Surfaces upcoming macro events that may affect narrative timing.",
+      explanation: failedEndpoint
+        ? `${failedEndpoint.name} returned ${failedEndpoint.errorType}.`
+        : "Macro event data is pending from SoSoValue.",
+      evidence: [`Endpoint: ${SIGNAL_STACK_ENDPOINTS.macroEvents}.`],
+      sourceLabel: "SoSoValue macro events",
+      dataMode: failedEndpoint ? "Unavailable" : "Pending",
+    };
+  }
+
+  const score = clampScore(50 + Math.min(25, upcoming.length * 8));
+
+  return {
+    name: "Macro catalysts",
+    score,
+    description: "Surfaces upcoming macro events that may affect narrative timing.",
+    explanation:
+      "SoNarr attached live SoSoValue macro event data to help explain why this narrative may matter now.",
+    evidence: [
+      `Upcoming macro events for ${narrative.label} context:`,
+      ...upcoming.map((day) => `${day.date}: ${day.events.slice(0, 2).join(", ")}`),
+    ],
+    sourceLabel: "SoSoValue macro events",
+    dataMode: "Live",
+  };
 }
 
 async function getMarketSnapshot(
@@ -267,7 +385,7 @@ async function getMarketSnapshot(
     return response;
   }
 
-  const payload = responsePayload(response.data);
+  const payload = responseRecord(response.data);
   if (!payload) {
     return {
       ok: false,
@@ -294,12 +412,15 @@ async function getMarketSnapshot(
   };
 }
 
-export async function getNarrativeMarketSnapshots(narrative: NarrativeSignal) {
-  const currencies = uniqueCurrencyRefs(narrative);
+export async function getNarrativeMarketSnapshots(
+  narrative: NarrativeSignal,
+  assets: string[] = [],
+) {
+  const resolved = await resolveCurrencyRefs(narrative, assets);
   const snapshots: MarketSnapshot[] = [];
-  const endpoints: EndpointStatus[] = [];
+  const endpoints: EndpointStatus[] = [...resolved.endpoints];
 
-  for (const currency of currencies) {
+  for (const currency of resolved.currencies) {
     const result = await getMarketSnapshot(currency);
     endpoints.push(result.status);
 
@@ -342,7 +463,7 @@ export async function getSectorSpotlightData() {
     return { data: [], endpoints: [response.status] };
   }
 
-  const payload = responsePayload(response.data);
+  const payload = responseRecord(response.data);
 
   if (!payload) {
     return {
@@ -441,10 +562,12 @@ async function getIndexConstituents(indexTicker: string) {
 export async function getIndexConstituentData() {
   const tickerResult = await getIndexTickers();
   const endpoints: EndpointStatus[] = [...tickerResult.endpoints];
+  const constituentResults = await Promise.all(
+    tickerResult.data.map((ticker) => getIndexConstituents(ticker)),
+  );
   const constituents: IndexConstituent[] = [];
 
-  for (const ticker of tickerResult.data) {
-    const result = await getIndexConstituents(ticker);
+  for (const result of constituentResults) {
     endpoints.push(...result.endpoints);
     constituents.push(...result.data);
   }
@@ -730,11 +853,13 @@ function buildSectorAlignmentLayer({
 function buildIndexRelevanceLayer({
   endpointStatuses,
   indexConstituents,
+  indexSnapshots = [],
   topAssets,
   weightedAssets,
 }: {
   endpointStatuses: EndpointStatus[];
   indexConstituents: IndexConstituent[];
+  indexSnapshots?: IndexMarketSnapshot[];
   topAssets: string[];
   weightedAssets: WeightedAsset[];
 }): SignalStackLayer {
@@ -789,15 +914,6 @@ const isEndpointOk = (status?: EndpointStatus) =>
   const matchedIndexes = Array.from(
     new Set(matches.map((constituent) => constituent.indexTicker)),
   );
-
-  console.log("[Index relevance debug]", {
-  endpointStatuses,
-  indexListStatus,
-  constituentsStatus,
-  indexListOk,
-  constituentsOk,
-  indexConstituentsLength: indexConstituents.length,
-});
 
   if (indexConstituents.length === 0) {
     if (failedEndpoint) {
@@ -900,6 +1016,17 @@ const isEndpointOk = (status?: EndpointStatus) =>
     clampScore(coverageScore + indexBreadthScore + weightScore),
   );
 
+  const snapshotEvidence = indexSnapshots.slice(0, 3).map((snapshot) => {
+    const change =
+      snapshot.change24hPct === undefined
+        ? "24h change unavailable"
+        : formatPct(snapshot.change24hPct);
+    const week =
+      snapshot.weekRoi === undefined ? "" : ` · 7d ROI ${formatPct(snapshot.weekRoi)}`;
+
+    return `${snapshot.indexTicker} index snapshot: ${change}${week}.`;
+  });
+
   return {
     name: "Index relevance",
     score,
@@ -917,16 +1044,146 @@ const isEndpointOk = (status?: EndpointStatus) =>
 
         return `${constituent.symbol} appears in ${constituent.indexTicker}: ${weight}.`;
       }),
+      ...snapshotEvidence,
     ],
     sourceLabel: "SoSoValue index data",
     dataMode: "Live",
   };
 }
 
+function buildExecutionReadinessLayer({
+  executionReadiness,
+  liquidityContext,
+  riskLevel,
+  weightedAssets,
+}: {
+  executionReadiness?: BasketExecutionReadiness;
+  liquidityContext?: BasketLiquidityContext;
+  riskLevel: string;
+  weightedAssets: WeightedAsset[];
+}): SignalStackLayer {
+  const liquidityEvidence =
+    liquidityContext && liquidityContext.mode !== "unavailable"
+      ? [
+          liquidityContext.summary,
+          ...liquidityContext.assets.slice(0, 3).map((asset) => {
+            const topPair = asset.topPair;
+            const turnover =
+              topPair?.turnover24h !== undefined
+                ? formatUsdCompact(topPair.turnover24h)
+                : "turnover unavailable";
+
+            return `${asset.symbol}: ${asset.pairCount} CEX pairs tracked${topPair ? ` · top ${topPair.market} ${topPair.base}/${topPair.target} ${turnover} 24h` : ""}.`;
+          }),
+        ]
+      : liquidityContext
+        ? ["SoSoValue trading pair data could not be resolved for this basket."]
+        : [];
+
+  if (!executionReadiness) {
+    return {
+      name: "Execution readiness",
+      status: "Pending verification",
+      description:
+        "Tracks whether the basket is ready for SoDEX orderbook checks alongside SoSoValue CEX pair liquidity.",
+      explanation:
+        "SoDEX execution checks have not run yet for this narrative basket.",
+      evidence: [
+        `Current risk posture: ${riskLevel}.`,
+        "Orderbook depth, slippage, and basket route checks are pending SoDEX integration.",
+        ...liquidityEvidence,
+      ],
+      sourceLabel: "SoDEX spot markets + SoSoValue pairs",
+      dataMode: "Pending",
+    };
+  }
+
+  if (executionReadiness.mode === "unavailable") {
+    return {
+      name: "Execution readiness",
+      status: "Unavailable",
+      description:
+        "Tracks whether the basket is ready for SoDEX orderbook checks alongside SoSoValue CEX pair liquidity.",
+      explanation: executionReadiness.summary,
+      evidence: [
+        `Basket notionally sized at $${executionReadiness.totalNotionalUsd.toLocaleString()} across ${weightedAssets.length} legs.`,
+        "SoDEX spot symbol or orderbook data could not be resolved.",
+        ...liquidityEvidence,
+      ],
+      sourceLabel: "SoDEX spot markets + SoSoValue pairs",
+      dataMode: "Unavailable",
+    };
+  }
+
+  const coverageRatio =
+    executionReadiness.totalLegs > 0
+      ? executionReadiness.tradableCount / executionReadiness.totalLegs
+      : 0;
+  const slippagePenalty =
+    executionReadiness.weightedSlippagePct === undefined
+      ? 10
+      : Math.min(35, executionReadiness.weightedSlippagePct * 8);
+  const score = clampScore(Math.round(coverageRatio * 85 - slippagePenalty + 15));
+  const dataMode =
+    executionReadiness.mode === "live"
+      ? ("Live" as const)
+      : ("Partial" as const);
+
+  return {
+    name: "Execution readiness",
+    score,
+    status: executionReadiness.tradableCount === executionReadiness.totalLegs ? undefined : "Partial",
+    description:
+      "Tracks whether the basket is ready for SoDEX orderbook checks alongside SoSoValue CEX pair liquidity.",
+    explanation:
+      "SoNarr mapped the generated basket to live SoDEX spot markets and estimated orderbook depth and buy-side slippage. SoSoValue trading pairs provide complementary CEX liquidity context. No wallet connection or signed trades are performed.",
+    evidence: [
+      `${executionReadiness.tradableCount}/${executionReadiness.totalLegs} legs tradable on SoDEX ${executionReadiness.network}.`,
+      `Top-of-book depth (asks): $${Math.round(executionReadiness.totalAskDepthUsd).toLocaleString()} across resolved markets.`,
+      executionReadiness.weightedSlippagePct !== undefined
+        ? `Estimated weighted slippage for $${executionReadiness.totalNotionalUsd.toLocaleString()} basket: ${executionReadiness.weightedSlippagePct.toFixed(2)}%.`
+        : "Slippage estimate pending sufficient ask depth on one or more legs.",
+      `Current risk posture: ${riskLevel}.`,
+      ...liquidityEvidence,
+    ],
+    sourceLabel: "SoDEX spot markets + SoSoValue pairs",
+    dataMode,
+  };
+}
+
+export function getRelevantIndexTickers(
+  assets: string[],
+  constituents: IndexConstituent[],
+) {
+  const targetAssets = new Set(assets.map((asset) => asset.toUpperCase()));
+  const matched = Array.from(
+    new Set(
+      constituents
+        .filter((constituent) => targetAssets.has(constituent.symbol.toUpperCase()))
+        .map((constituent) => constituent.indexTicker),
+    ),
+  );
+
+  if (matched.length > 0) {
+    return matched.slice(0, 3);
+  }
+
+  return Array.from(new Set(constituents.map((constituent) => constituent.indexTicker))).slice(
+    0,
+    2,
+  );
+}
+
 export function buildNarrativeSignalStack({
   assets,
+  etfSnapshot,
   evidenceBullets,
+  executionReadiness,
   indexConstituents = [],
+  indexSnapshots = [],
+  klineTrends = [],
+  liquidityContext,
+  macroEvents = [],
   marketSnapshots = [],
   narrative,
   radar,
@@ -956,6 +1213,11 @@ export function buildNarrativeSignalStack({
       marketSnapshots,
       topAssets,
     }),
+    buildHistoricalTrendLayer({
+      endpointStatuses: signalEndpointStatuses,
+      klineTrends,
+      topAssets,
+    }),
     buildSectorAlignmentLayer({
       endpointStatuses: signalEndpointStatuses,
       narrative,
@@ -965,24 +1227,27 @@ export function buildNarrativeSignalStack({
     buildIndexRelevanceLayer({
       endpointStatuses: signalEndpointStatuses,
       indexConstituents,
+      indexSnapshots,
       topAssets,
       weightedAssets,
     }),
-    {
-      name: "Execution readiness",
-      status: "Pending verification",
-      description:
-        "Tracks whether the basket is ready for future SoDEX orderbook, slippage, and route checks.",
-      explanation:
-        "Execution remains preview-only. No signed writes, routes, wallet connections, or trades are available in Wave 1.",
-      evidence: [
-        `Current risk posture: ${riskLevel}.`,
-        "Orderbook depth, slippage, and basket route checks are pending SoDEX integration.",
-      ],
-      sourceLabel: "SoDEX preview",
-      dataMode: "Pending",
-    },
-  ];
+    buildTradFiFlowLayer({
+      endpointStatuses: signalEndpointStatuses,
+      etfSnapshot,
+      narrative,
+    }),
+    buildMacroCatalystLayer({
+      endpointStatuses: signalEndpointStatuses,
+      macroEvents,
+      narrative,
+    }),
+    buildExecutionReadinessLayer({
+      executionReadiness,
+      liquidityContext,
+      riskLevel,
+      weightedAssets,
+    }),
+  ].filter((layer): layer is SignalStackLayer => layer !== null);
 
   const scoredLayers = layers.filter(
     (layer): layer is SignalStackLayer & { score: number } =>
@@ -1022,8 +1287,9 @@ export function buildNarrativeSignalStack({
       ? `${weakestLayer.name} (${scoreLabel(weakestLayer)})`
       : "No scored layer available",
     mode,
-    conclusion:
-      "This narrative is strongest on news heat and market attention, while execution readiness remains in preview mode until SoDEX orderbook checks are connected.",
+    conclusion: executionReadiness?.tradableCount
+      ? `This narrative is strongest on news heat and market attention. SoDEX execution readiness resolved ${executionReadiness.tradableCount}/${executionReadiness.totalLegs} basket legs with live orderbook checks.`
+      : "This narrative is strongest on news heat and market attention, while execution readiness depends on SoDEX market coverage for the generated basket.",
     layers,
   };
 }

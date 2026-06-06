@@ -1,4 +1,6 @@
-import { Card } from "@/components/ui/card";
+import { Clock3, Flame, Radio, Search } from "lucide-react";
+
+import { StatCell, StatGrid } from "@/components/ui/stat";
 import type { RadarData } from "@/lib/sosovalue";
 
 import { formatUpdatedAt } from "./radar-utils";
@@ -9,29 +11,18 @@ type RadarStatsProps = {
 };
 
 export function RadarStats({ hotMentions, radar }: RadarStatsProps) {
-  const stats = [
-    { label: "Hot feed items", value: radar.hotNews.length },
-    { label: "Narratives checked", value: radar.narratives.length },
-    { label: "Leader mentions in hot feed", value: hotMentions },
-    { label: "Updated", value: formatUpdatedAt(radar.updatedAt), compact: true },
-  ];
-
   return (
-    <div className="mt-10 grid gap-4 md:grid-cols-4">
-      {stats.map((stat) => (
-        <Card key={stat.label} className="bg-card/80 p-5">
-          <p className="text-sm text-muted-foreground">{stat.label}</p>
-          <p
-            className={
-              stat.compact
-                ? "mt-3 text-xl font-semibold text-foreground"
-                : "mt-3 text-3xl font-semibold text-foreground"
-            }
-          >
-            {stat.value}
-          </p>
-        </Card>
-      ))}
-    </div>
+    <StatGrid className="mt-4">
+      <StatCell label="Hot feed" help="Live tape items" icon={Flame} value={radar.hotNews.length} />
+      <StatCell label="Narratives" help="Tracked themes" icon={Radio} value={radar.narratives.length} />
+      <StatCell label="Leader hits" help="Hot news mentions" icon={Search} value={hotMentions} />
+      <StatCell
+        label="Updated"
+        help="Last radar refresh"
+        icon={Clock3}
+        value={formatUpdatedAt(radar.updatedAt)}
+        valueClassName="text-base"
+      />
+    </StatGrid>
   );
 }

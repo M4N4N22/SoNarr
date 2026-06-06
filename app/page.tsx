@@ -1,11 +1,8 @@
 import Link from "next/link";
+import Image from "next/image";
 
-const navItems = [
-  { label: "Problem", href: "#problem" },
-  { label: "Solution", href: "#solution" },
-  { label: "Workflow", href: "#workflow" },
-  { label: "Stack", href: "#stack" },
-];
+import { SiteFooter } from "@/components/layout/site-footer";
+import { SiteHeader } from "@/components/layout/site-header";
 
 const problemCards = [
   {
@@ -327,60 +324,36 @@ function NarrativePreview() {
 
 export default function Home() {
   return (
-    <main className="min-h-screen overflow-hidden bg-background text-foreground">
-      <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_20%_10%,rgba(43,68,231,0.22),transparent_28rem),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.08),transparent_24rem)]" />
+    <main className="min-h-screen bg-background text-foreground">
+      <SiteHeader variant="marketing" />
 
-      <header className="sticky top-0 z-40 border-b border-border bg-background/75 backdrop-blur-xl">
-        <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
-          <a href="#" className="flex items-center gap-3" aria-label="SoNarr home">
-            <span className="font-semibold tracking-tight text-foreground">SoNarr</span>
-          </a>
-          <div className="hidden items-center gap-8 md:flex">
-            {navItems.map((item) => (
-              <a
-                key={item.href}
-                href={item.href}
-                className="text-sm text-muted-foreground transition hover:text-foreground"
-              >
-                {item.label}
-              </a>
-            ))}
-          </div>
-          <Link
-            href="/radar"
-            className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/20 transition hover:bg-primary/90"
-          >
-            Open narrative radar
-          </Link>
-        </nav>
-      </header>
-
-      <section className="px-6 pb-20 pt-20 sm:pt-28 lg:px-8" id="radar">
+      <section className="px-4 pb-16 pt-12 sm:px-6 lg:px-8" id="radar">
         <div className="mx-auto max-w-5xl text-center">
-          <div className="inline-flex rounded-full border border-primary/30 bg-primary/10 px-4 py-2 text-sm font-medium text-primary">
-            Built for the SoSoValue Buildathon
+          <div className="mx-auto flex w-fit items-center gap-3 rounded-full border border-primary/30 bg-primary/10 px-4 py-2">
+            <span className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-card">
+              <Image src="/sonarrlogo.png" alt="" width={24} height={24} className="object-contain p-1" />
+            </span>
+            <span className="text-sm font-medium text-primary">Built for the SoSoValue Buildathon</span>
           </div>
-          <h1 className="mt-8 text-5xl font-semibold tracking-tight text-foreground sm:text-7xl">
-            Turn market noise into your one-person finance desk.
+          <h1 className="mt-6 text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+            Narrative radar → SoDEX execution
           </h1>
-          <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-muted-foreground sm:text-xl">
-            SoNarr detects emerging crypto narratives from SoSoValue-powered
-            market data and news, then converts them into publishable index ideas,
-            research briefs, risk checks, and SoDEX-ready execution previews.
+          <p className="mx-auto mt-4 max-w-2xl text-base text-muted-foreground">
+            Detect themes from SoSoValue. Package a basket. Route on SoDEX.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               href="/radar"
               className="rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-xl shadow-primary/25 transition hover:bg-primary/90"
             >
-              Open narrative radar
+              Open Radar
             </Link>
-            <a
-              href="#example"
+            <Link
+              href="/sodex"
               className="rounded-full border border-border bg-card px-6 py-3 text-sm font-semibold text-foreground transition hover:bg-muted"
             >
-              View example index
-            </a>
+              Open SoDEX
+            </Link>
           </div>
           <p className="mt-6 text-sm text-muted-foreground">
             Powered by SoSoValue data, news feeds, index tooling, and SoDEX
@@ -491,12 +464,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer className="border-t border-border px-6 py-8 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <p>SoNarr - built for the SoSoValue Buildathon.</p>
-          <p>Narrative sonar for one-person finance desks.</p>
-        </div>
-      </footer>
+      <SiteFooter />
     </main>
   );
 }

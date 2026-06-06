@@ -1,3 +1,9 @@
+"use client";
+
+import { useState } from "react";
+
+import { HorizontalBars, type HorizontalBarItem } from "@/components/charts/horizontal-bars";
+import { ScoreRing } from "@/components/charts/score-ring";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -5,18 +11,31 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { InfoTip } from "@/components/ui/info-tip";
 import { Separator } from "@/components/ui/separator";
 import type { NarrativeSignalStack as NarrativeSignalStackData } from "@/lib/sonarr/signal-stack";
+import { cn } from "@/lib/utils";
 
-function ProgressBar({ score }: { score: number }) {
-  return (
-    <div className="h-2 overflow-hidden rounded-full bg-muted">
-      <div
-        className="h-full rounded-full bg-primary"
-        style={{ width: `${Math.max(4, Math.min(100, score))}%` }}
-      />
-    </div>
-  );
+const layerHints: Record<string, string> = {
+  "News heat": "How loud this theme is in SoSoValue hot news and search right now.",
+  "Market momentum": "Whether linked assets are moving in live market snapshots.",
+  "Historical trend": "Approximate 7-day price direction from daily klines.",
+  "Sector alignment": "Match to SoSoValue sector or spotlight categories.",
+  "Index relevance": "Overlap with official SoSoValue index constituents.",
+  "TradFi flow": "Spot ETF inflow and trading activity (Bitcoin ETF narrative).",
+  "Macro catalysts": "Upcoming macro events that may affect timing.",
+  "Execution readiness": "SoDEX route checks plus SoSoValue CEX pair liquidity.",
+};
+
+function layerBarItems(stack: NarrativeSignalStackData): HorizontalBarItem[] {
+  return stack.layers.map((layer) => ({
+    id: layer.name,
+    label: layer.name,
+    value: typeof layer.score === "number" ? layer.score : null,
+    status: layer.status,
+    dataMode: layer.dataMode,
+    hint: layerHints[layer.name] ?? layer.description,
+  }));
 }
 
 function layerValue(layer: NarrativeSignalStackData["layers"][number]) {
@@ -27,127 +46,145 @@ function layerValue(layer: NarrativeSignalStackData["layers"][number]) {
   return layer.status ?? "Pending";
 }
 
-function overallValue(score?: number) {
-  return typeof score === "number" ? `${score}/100` : "Unavailable";
+function LayerAccordionItem({
+  layer,
+  defaultOpen,
+}: {
+  layer: NarrativeSignalStackData["layers"][number];
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen ?? false);
+  const topEvidence = layer.evidence.slice(0, 2);
+
+  return (
+    <div className="rounded-xl border border-border bg-background/50">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-semibold text-foreground">{layer.name}</p>
+            <InfoTip label={layer.name} side="bottom">
+              {layerHints[layer.name] ?? layer.description}
+            </InfoTip>
+          </div>
+          {typeof layer.score === "number" ? (
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary"
+                style={{ width: `${Math.max(4, layer.score)}%` }}
+              />
+            </div>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">{layer.status ?? "Pending"}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className="text-sm font-semibold text-foreground">{layerValue(layer)}</span>
+          <Badge variant={layer.dataMode === "Live" ? "default" : "outline"} className="text-[10px]">
+            {layer.dataMode}
+          </Badge>
+        </div>
+      </button>
+      {open ? (
+        <div className="space-y-2 border-t border-border px-4 py-3">
+          <p className="text-xs leading-5 text-muted-foreground">{layer.explanation}</p>
+          {topEvidence.map((item) => (
+            <p
+              key={item}
+              className="rounded-lg border border-border bg-card/70 px-2.5 py-2 text-xs leading-5 text-muted-foreground"
+            >
+              {item}
+            </p>
+          ))}
+          {layer.evidence.length > 2 ? (
+            <p className="text-[11px] text-muted-foreground">
+              +{layer.evidence.length - 2} more data points in this layer
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function NarrativeSignalStack({
   stack,
+  compact = false,
+  embedded = false,
 }: {
   stack: NarrativeSignalStackData;
+  compact?: boolean;
+  embedded?: boolean;
 }) {
+  const content = (
+    <Card className={cn("overflow-hidden bg-card/85", embedded && "shadow-none")}>
+      <CardHeader className={cn("border-b border-border", compact ? "p-4 sm:p-5" : "p-6 sm:p-8")}>
+        <div className={cn("grid gap-6", !compact && "lg:grid-cols-[1fr_auto] lg:items-center")}>
+          <div>
+            <Badge>{stack.mode}</Badge>
+            <CardTitle className={cn("mt-3", compact ? "text-xl" : "text-3xl sm:text-4xl")}>
+              Signal Stack
+            </CardTitle>
+            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+              Each bar is a live check from SoSoValue or SoDEX. Hover the{" "}
+              <span className="text-foreground">?</span> icons for plain-English help.
+            </p>
+          </div>
+          <ScoreRing
+            value={stack.overallScore ?? 0}
+            label="Overall"
+            hint="Average of scored layers — not a buy signal."
+            displayValue={
+              typeof stack.overallScore === "number"
+                ? `${stack.overallScore}`
+                : "N/A"
+            }
+            size={compact ? "md" : "lg"}
+          />
+        </div>
+      </CardHeader>
+
+      <CardContent className={cn("space-y-4", compact ? "p-4 sm:p-5" : "p-6 sm:p-8")}>
+        <HorizontalBars items={layerBarItems(stack)} />
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="rounded-xl border border-border bg-background/60 p-3">
+            <p className="text-xs text-muted-foreground">Strongest layer</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">{stack.strongestLayer}</p>
+          </div>
+          <div className="rounded-xl border border-border bg-background/60 p-3">
+            <p className="text-xs text-muted-foreground">Weakest layer</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">{stack.weakestLayer}</p>
+          </div>
+        </div>
+
+        {!compact ? <Separator /> : null}
+
+        <div className="space-y-2">
+          {stack.layers.map((layer, index) => (
+            <LayerAccordionItem
+              key={layer.name}
+              layer={layer}
+              defaultOpen={compact && index === 0}
+            />
+          ))}
+        </div>
+
+        <p className="rounded-xl border border-border bg-background/50 px-3 py-2 text-xs leading-5 text-muted-foreground">
+          {stack.conclusion}
+        </p>
+      </CardContent>
+    </Card>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
   return (
-    <section className="mx-auto max-w-7xl px-6 pb-10 lg:px-8">
-      <Card className="overflow-hidden bg-card/85">
-        <CardHeader className="border-b border-border p-6 sm:p-8">
-          <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr] lg:items-end">
-            <div>
-              <Badge>{stack.mode}</Badge>
-              <CardTitle className="mt-5 text-3xl sm:text-4xl">
-                Narrative Signal Stack
-              </CardTitle>
-              <p className="mt-4 max-w-3xl text-base leading-7 text-muted-foreground">
-                A multi-layer check that turns SoSoValue data into narrative
-                conviction, not just a news summary.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border bg-background/60 p-5">
-              <div className="flex items-end justify-between gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">
-                    Overall narrative conviction
-                  </p>
-                  <p className="mt-2 text-4xl font-semibold text-foreground">
-                    {overallValue(stack.overallScore)}
-                  </p>
-                </div>
-                <Badge variant="outline">Current mode: {stack.mode}</Badge>
-              </div>
-              {typeof stack.overallScore === "number" ? (
-                <div className="mt-4">
-                  <ProgressBar score={stack.overallScore} />
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </CardHeader>
-
-        <CardContent className="space-y-6 p-6 sm:p-8">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-border bg-background/60 p-4">
-              <p className="text-sm text-muted-foreground">Strongest layer</p>
-              <p className="mt-2 font-semibold text-foreground">
-                {stack.strongestLayer}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border bg-background/60 p-4">
-              <p className="text-sm text-muted-foreground">Weakest scored layer</p>
-              <p className="mt-2 font-semibold text-foreground">
-                {stack.weakestLayer}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border bg-background/60 p-4">
-              <p className="text-sm text-muted-foreground">Conclusion</p>
-              <p className="mt-2 text-sm leading-6 text-foreground">
-                {stack.conclusion}
-              </p>
-            </div>
-          </div>
-
-          <Separator />
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            {stack.layers.map((layer) => (
-              <Card key={layer.name} className="bg-background/50 shadow-none">
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <CardTitle className="text-lg">{layer.name}</CardTitle>
-                      <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                        {layer.description}
-                      </p>
-                    </div>
-                    <Badge
-                      variant={layer.dataMode === "Live" ? "default" : "outline"}
-                    >
-                      {layer.dataMode}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <p className="text-2xl font-semibold text-foreground">
-                      {layerValue(layer)}
-                    </p>
-                    {typeof layer.score === "number" ? (
-                      <div className="mt-3">
-                        <ProgressBar score={layer.score} />
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    {layer.explanation}
-                  </p>
-
-                  <div className="space-y-2">
-                    {layer.evidence.map((item) => (
-                      <p
-                        key={item}
-                        className="rounded-xl border border-border bg-card/70 p-3 text-xs leading-5 text-muted-foreground"
-                      >
-                        {item}
-                      </p>
-                    ))}
-                  </div>
-
-                  <Badge variant="muted">{layer.sourceLabel}</Badge>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </section>
+    <section className="mx-auto max-w-7xl px-6 pb-10 lg:px-8">{content}</section>
   );
 }

@@ -5,10 +5,7 @@ import { cn } from "@/lib/utils";
 export function Card({ className, ...props }: ComponentPropsWithoutRef<"div">) {
   return (
     <div
-      className={cn(
-        "rounded-3xl text-card-foreground shadow-md ",
-        className,
-      )}
+      className={cn("rounded-lg bg-card text-card-foreground", className)}
       {...props}
     />
   );
@@ -18,7 +15,7 @@ export function CardHeader({
   className,
   ...props
 }: ComponentPropsWithoutRef<"div">) {
-  return <div className={cn("p-6 pb-3", className)} {...props} />;
+  return <div className={cn("px-4 py-3", className)} {...props} />;
 }
 
 export function CardTitle({
@@ -27,7 +24,7 @@ export function CardTitle({
 }: ComponentPropsWithoutRef<"h3">) {
   return (
     <h3
-      className={cn("text-lg font-semibold tracking-tight text-foreground", className)}
+      className={cn("text-sm font-semibold tracking-tight text-foreground", className)}
       {...props}
     />
   );
@@ -37,5 +34,5 @@ export function CardContent({
   className,
   ...props
 }: ComponentPropsWithoutRef<"div">) {
-  return <div className={cn("p-4 pt-3", className)} {...props} />;
+  return <div className={cn("px-4 pb-4 pt-1", className)} {...props} />;
 }

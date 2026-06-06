@@ -19,6 +19,7 @@ import type {
 
 type AiNarrativeBriefProps = {
   input: NarrativeBriefInput;
+  embedded?: boolean;
 };
 
 function BulletSection({ items, title }: { items: string[]; title: string }) {
@@ -71,7 +72,7 @@ function BriefContent({ brief }: { brief: NarrativeBrief }) {
   );
 }
 
-export function AiNarrativeBrief({ input }: AiNarrativeBriefProps) {
+export function AiNarrativeBrief({ input, embedded = false }: AiNarrativeBriefProps) {
   const [result, setResult] = useState<NarrativeBriefResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -100,29 +101,33 @@ export function AiNarrativeBrief({ input }: AiNarrativeBriefProps) {
     });
   }
 
-  return (
-    <section className="mx-auto max-w-7xl px-6 pb-10 lg:px-8">
-      <Card className="bg-card/85">
-        <CardHeader className="border-b border-border">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <Badge variant={result?.source === "gemini" ? "default" : "outline"}>
-                {result?.source === "gemini"
-                  ? "Gemini Powered"
-                  : result?.source === "cache"
-                    ? "Cached brief"
+  const card = (
+    <Card className="bg-card/85">
+      <CardHeader className={embedded ? "border-b border-border p-4 sm:p-5" : "border-b border-border"}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <Badge variant={result?.source === "gemini" ? "default" : "outline"}>
+              {result?.source === "gemini"
+                ? "Gemini Powered"
+                : result?.source === "cache"
+                  ? "Cached brief"
                   : result?.source === "fallback"
                     ? "Fallback brief"
                     : "AI"}
-              </Badge>
-              <CardTitle className="mt-5 text-3xl sm:text-4xl">
-                AI Narrative Brief
-              </CardTitle>
+            </Badge>
+            <CardTitle className={embedded ? "mt-3 text-xl" : "mt-5 text-3xl sm:text-4xl"}>
+              {embedded ? "Narrative brief" : "AI Narrative Brief"}
+            </CardTitle>
+            {!embedded ? (
               <p className="mt-4 max-w-3xl text-base leading-7 text-muted-foreground">
-                SoNarr turns SoSoValue-powered evidence into a finance-ready
-                narrative brief.
+                SoNarr turns SoSoValue-powered evidence into a finance-ready narrative brief.
               </p>
-            </div>
+            ) : (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Synthesize existing evidence into a finance-ready summary.
+              </p>
+            )}
+          </div>
             <div className="flex flex-col gap-3 sm:flex-row">
               <Button
                 type="button"
@@ -144,7 +149,7 @@ export function AiNarrativeBrief({ input }: AiNarrativeBriefProps) {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-5 p-6">
+        <CardContent className={embedded ? "space-y-4 p-4 sm:p-5" : "space-y-5 p-6"}>
           {error ? (
             <div className="rounded-2xl border border-border bg-muted p-4 text-sm text-muted-foreground">
               {error}
@@ -194,6 +199,11 @@ export function AiNarrativeBrief({ input }: AiNarrativeBriefProps) {
           </p>
         </CardContent>
       </Card>
-    </section>
   );
+
+  if (embedded) {
+    return card;
+  }
+
+  return <section className="mx-auto max-w-7xl px-6 pb-10 lg:px-8">{card}</section>;
 }

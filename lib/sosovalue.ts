@@ -7,6 +7,7 @@ import {
   type EndpointResult,
   type EndpointStatus,
 } from "@/lib/types/data-source";
+import { cache } from "react";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -431,15 +432,19 @@ async function getNarrativeSignal({
   }
 }
 
-export async function getRadarData(): Promise<RadarData> {
+async function fetchRadarData(): Promise<RadarData> {
   const updatedAt = new Date().toISOString();
   const hotNewsResult = await getHotNews();
   const endpoints: EndpointStatus[] = [hotNewsResult.status];
   const hotNews = hotNewsResult.ok ? hotNewsResult.data : [];
+
+  const narrativeResults = await Promise.all(
+    narrativeQueries.map((query) => getNarrativeSignal(query)),
+  );
+
   const narratives: NarrativeSignal[] = [];
 
-  for (const query of narrativeQueries) {
-    const result = await getNarrativeSignal(query);
+  for (const result of narrativeResults) {
     endpoints.push(result.status);
 
     if (result.ok) {
@@ -464,6 +469,8 @@ export async function getRadarData(): Promise<RadarData> {
     updatedAt,
   };
 }
+
+export const getRadarData = cache(fetchRadarData);
 
 export async function getNarrativeById(id: string) {
   const radar = await getRadarData();

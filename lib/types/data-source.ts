@@ -125,3 +125,28 @@ export function logEndpointStatus({
 
   console.log(lines.join("\n"));
 }
+
+export function logSodexEndpointStatus({
+  status,
+  url,
+}: {
+  status: EndpointStatus;
+  url?: string;
+}) {
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
+
+  const lines = [
+    `[SoNarr SoDEX] ${status.name}${status.ok ? "" : " failed"}`,
+    `endpoint: ${status.endpoint}`,
+    url ? `url: ${url}` : undefined,
+    status.status ? `status: ${status.status}` : undefined,
+    status.durationMs !== undefined ? `durationMs: ${status.durationMs}` : undefined,
+    status.itemCount !== undefined ? `itemCount: ${status.itemCount}` : undefined,
+    status.errorType !== "none" ? `errorType: ${status.errorType}` : undefined,
+    `message: ${status.message}`,
+  ].filter(Boolean);
+
+  console.log(lines.join("\n"));
+}
