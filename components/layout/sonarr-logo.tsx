@@ -23,14 +23,6 @@ export function SonarrLogo({
   return (
     <Link href={href} className={cn("flex items-center gap-2.5", className)} aria-label="SoNarr home">
       <span className={cn("relative flex shrink-0 items-center justify-center overflow-hidden", dimensions.box)}>
-        <Image
-          src="/sonarrlogo.png"
-          alt=""
-          width={dimensions.image}
-          height={dimensions.image}
-          className="object-contain"
-          priority
-        />
       </span>
       {showWordmark ? (
         <span className={cn("font-semibold tracking-tight text-foreground", dimensions.text)}>SoNarr</span>

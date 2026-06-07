@@ -34,7 +34,7 @@ function SiteHeaderInner({
   ] as const;
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-card">
+    <header className="sticky top-0 z-50 py-4 bg-gradient-to-b from-background/95 to-background/80 backdrop-blur-sm ">
       <div className="mx-auto flex h-12 max-w-7xl items-center gap-6 px-4 sm:px-6 lg:px-8">
         <SonarrLogo href={variant === "marketing" ? "/" : "/radar"} size="sm" showWordmark />
 
@@ -74,7 +74,7 @@ function SiteHeaderInner({
         {variant === "marketing" ? (
           <Link
             href="/radar"
-            className="ml-auto rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
+            className="ml-auto rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
           >
             Launch app
           </Link>
