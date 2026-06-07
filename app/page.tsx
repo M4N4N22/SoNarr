@@ -329,18 +329,13 @@ export default function Home() {
 
       <section className="px-4 pb-16 pt-12 sm:px-6 lg:px-8" id="radar">
         <div className="mx-auto max-w-5xl text-center">
-          <div className="mx-auto flex w-fit items-center gap-3 rounded-full border border-primary/30 bg-primary/10 px-4 py-2">
-            <span className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-card">
-              <Image src="/sonarrlogo.png" alt="" width={24} height={24} className="object-contain p-1" />
-            </span>
-            <span className="text-sm font-medium text-primary">Built for the SoSoValue Buildathon</span>
-          </div>
-          <h1 className="mt-6 text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
-            Narrative radar → SoDEX execution
+        <div className="">
+          <h1 className="mt-6 text-9xl font-extralight tracking-tighter  sm:text-9xl text-transparent bg-clip-text bg-gradient-to-t from-foreground to-primary">
+            Detect. <br/>
+            Package. 
+            <br/>Route on SoDEX.
           </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-base text-muted-foreground">
-            Detect themes from SoSoValue. Package a basket. Route on SoDEX.
-          </p>
+          </div>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               href="/radar"
