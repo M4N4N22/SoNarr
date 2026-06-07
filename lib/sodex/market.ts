@@ -8,6 +8,16 @@ export type SodexSpotSymbol = {
   baseCoin: string;
   quoteCoin: string;
   status: string;
+  tickSize: string;
+  stepSize: string;
+  minPrice: string;
+  maxPrice: string;
+  minQuantity: string;
+  minNotional: string;
+  buyLimitUpRatio: string;
+  sellLimitDownRatio: string;
+  quantityPrecision: number;
+  pricePrecision: number;
 };
 
 export type SodexOrderBookLevel = {
@@ -28,6 +38,7 @@ export type SodexTicker = {
   bidSz?: number;
   changePct?: number;
   lastPx?: number;
+  lastTradePrice?: string;
   symbol: string;
   volume?: number;
 };
@@ -62,12 +73,39 @@ function parseSpotSymbol(value: unknown): SodexSpotSymbol | undefined {
   const baseCoin = asString(value.baseCoin);
   const quoteCoin = asString(value.quoteCoin);
   const status = asString(value.status) ?? "UNKNOWN";
+  const tickSize = asString(value.tickSize) ?? "0.00000001";
+  const stepSize = asString(value.stepSize) ?? "0.00000001";
+  const minPrice = asString(value.minPrice) ?? "0";
+  const maxPrice = asString(value.maxPrice) ?? "0";
+  const minQuantity = asString(value.minQuantity) ?? "0";
+  const minNotional = asString(value.minNotional) ?? "0";
+  const buyLimitUpRatio = asString(value.buyLimitUpRatio) ?? "0";
+  const sellLimitDownRatio = asString(value.sellLimitDownRatio) ?? "0";
+  const quantityPrecision = asNumber(value.quantityPrecision) ?? 8;
+  const pricePrecision = asNumber(value.pricePrecision) ?? 8;
 
   if (id === undefined || !name || !displayName || !baseCoin || !quoteCoin) {
     return undefined;
   }
 
-  return { id, name, displayName, baseCoin, quoteCoin, status };
+  return {
+    id,
+    name,
+    displayName,
+    baseCoin,
+    quoteCoin,
+    status,
+    tickSize,
+    stepSize,
+    minPrice,
+    maxPrice,
+    minQuantity,
+    minNotional,
+    buyLimitUpRatio,
+    sellLimitDownRatio,
+    quantityPrecision,
+    pricePrecision,
+  };
 }
 
 function parseOrderBookLevels(value: unknown): SodexOrderBookLevel[] {
@@ -101,9 +139,12 @@ export function normalizeAssetToken(value: string) {
     .replace(/[^A-Z0-9]/g, "");
 }
 
+export function symbolAcceptsNewOrders(symbol: SodexSpotSymbol) {
+  return symbol.status.trim().toUpperCase() === "TRADING";
+}
+
 export async function getSpotSymbols(forceRefresh = false) {
   const now = Date.now();
-  const network = getSodexNetwork();
 
   if (!forceRefresh && symbolsCache && symbolsCache.expiresAt > now) {
     return { data: symbolsCache.symbols, endpoints: [symbolsCache.status] };
@@ -120,7 +161,7 @@ export async function getSpotSymbols(forceRefresh = false) {
       return payload
         .map(parseSpotSymbol)
         .filter((symbol): symbol is SodexSpotSymbol => Boolean(symbol))
-        .filter((symbol) => symbol.status === "TRADING");
+        .filter((symbol) => symbolAcceptsNewOrders(symbol));
     },
     300,
   );
@@ -214,14 +255,19 @@ export async function getMarketTickers() {
             return undefined;
           }
 
+          const lastTradePrice = asString(item.lastPx);
+          const askPx = asNumber(item.askPx);
+          const bidPx = asNumber(item.bidPx);
+
           return {
             symbol,
             lastPx: asNumber(item.lastPx),
+            lastTradePrice,
             changePct: asNumber(item.changePct),
             volume: asNumber(item.volume),
-            bidPx: asNumber(item.bidPx),
+            bidPx: bidPx && bidPx > 0 ? bidPx : undefined,
             bidSz: asNumber(item.bidSz),
-            askPx: asNumber(item.askPx),
+            askPx: askPx && askPx > 0 ? askPx : undefined,
             askSz: asNumber(item.askSz),
           } as SodexTicker;
         })

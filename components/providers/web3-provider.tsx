@@ -4,16 +4,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import { injected } from "wagmi/connectors";
-import { mainnet } from "wagmi/chains";
+
+import { sodexMainnet, sodexTestnet } from "@/lib/wagmi/sodex-chains";
 
 const wagmiConfig = createConfig({
-  chains: [mainnet],
+  chains: [sodexTestnet, sodexMainnet],
   connectors: [injected()],
   transports: {
-    [mainnet.id]: http(),
+    [sodexTestnet.id]: http(sodexTestnet.rpcUrls.default.http[0]),
+    [sodexMainnet.id]: http(sodexMainnet.rpcUrls.default.http[0]),
   },
   ssr: true,
 });
+
+export { wagmiConfig };
 
 export function Web3Provider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
