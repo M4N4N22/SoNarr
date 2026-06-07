@@ -65,7 +65,7 @@ export async function POST(request: Request) {
   }
 
   const batchRequest = planToBatchNewOrderRequest(plan, accountId);
-  const result = await submitSignedBasketTrade(batchRequest, {
+  const result = await submitSignedBasketTrade(batchRequest, plan, {
     apiKeyName,
     nonce: nonceValue,
     signature: signature as Hex,

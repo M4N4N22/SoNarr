@@ -1,9 +1,8 @@
 import type { Hex } from "viem";
 
+import { asNumber, asString, isRecord, requestSodexPost } from "./client";
+import { getSodexChainId, getSodexTradingCredentials } from "./config";
 import type { BasketExecutionReadiness, BasketLegReadiness } from "./readiness";
-import { requestSodexPost } from "./client";
-import { getSodexTradingCredentials } from "./config";
-import { getSpotSymbols } from "./market";
 import {
   buildBatchNewOrderBody,
   signBatchNewOrderRequest,
@@ -13,6 +12,19 @@ import {
   type BatchNewOrderItem,
   type BatchNewOrderRequest,
 } from "./signing";
+import {
+  formatSymbolTradingBlockReason,
+  formatTradingErrorMessage,
+  summarizeLegSubmitResults,
+  type BasketLegSubmitResult,
+} from "./trading-errors";
+import { symbolAcceptsNewOrders, getSpotSymbols } from "./market";
+import {
+  createClientOrderId,
+  formatLimitBuyPrice,
+  formatOrderQuantity,
+  validateOrderFilters,
+} from "./order-filters";
 
 export type PreparedBasketOrder = {
   asset: string;
@@ -36,12 +48,9 @@ export type BasketTradeResult = {
   ok: boolean;
   message: string;
   submittedOrders?: number;
+  legResults?: BasketLegSubmitResult[];
   response?: unknown;
 };
-
-function formatDecimal(value: number, decimals = 8) {
-  return value.toFixed(decimals).replace(/\.?0+$/, "");
-}
 
 export async function buildBasketTradePlan(
   executionReadiness: BasketExecutionReadiness,
@@ -50,9 +59,10 @@ export async function buildBasketTradePlan(
   const symbolByName = new Map(symbolsResult.data.map((symbol) => [symbol.name, symbol]));
   const orders: PreparedBasketOrder[] = [];
   const skipped: Array<{ asset: string; reason: string }> = [];
+  let orderIndex = 0;
 
   for (const leg of executionReadiness.legs) {
-    if (!leg.tradable || !leg.sodexSymbol || !leg.referencePrice) {
+    if (!leg.tradable || !leg.sodexSymbol || !leg.lastTradePrice) {
       skipped.push({
         asset: leg.asset,
         reason: leg.message ?? "Leg is not tradable on SoDEX.",
@@ -67,16 +77,33 @@ export async function buildBasketTradePlan(
       continue;
     }
 
-    const quantity = leg.legNotionalUsd / leg.referencePrice;
-    const clOrdID = `sonarr-${leg.asset.toLowerCase()}-${Date.now()}`;
+    if (!symbolAcceptsNewOrders(symbol)) {
+      skipped.push({
+        asset: leg.asset,
+        reason: formatSymbolTradingBlockReason(symbol.displayName, symbol.status),
+      });
+      continue;
+    }
+
+    const price = formatLimitBuyPrice(leg.referencePrice ?? Number(leg.lastTradePrice), leg.lastTradePrice, symbol);
+    const quantity = formatOrderQuantity(leg.legNotionalUsd / Number(price), symbol);
+    const filterError = validateOrderFilters(quantity, price, symbol, leg.lastTradePrice);
+
+    if (filterError) {
+      skipped.push({ asset: leg.asset, reason: filterError });
+      continue;
+    }
+
+    const clOrdID = createClientOrderId(leg.asset, orderIndex);
+    orderIndex += 1;
 
     orders.push({
       asset: leg.asset,
       clOrdID,
       displayName: leg.displayName,
       legNotionalUsd: leg.legNotionalUsd,
-      price: formatDecimal(leg.referencePrice, 6),
-      quantity: formatDecimal(quantity, 8),
+      price,
+      quantity,
       sodexSymbol: leg.sodexSymbol,
       symbolID: symbol.id,
       tradable: true,
@@ -84,6 +111,68 @@ export async function buildBasketTradePlan(
   }
 
   return { orders, skipped };
+}
+
+export function singleOrderPlan(order: PreparedBasketOrder): BasketTradePlan {
+  return { orders: [order], skipped: [] };
+}
+
+export function parseBatchLegResults(
+  request: BatchNewOrderRequest,
+  plan: BasketTradePlan,
+  payload: unknown,
+): BasketLegSubmitResult[] {
+  const orderByClOrdId = new Map(plan.orders.map((order) => [order.clOrdID, order]));
+
+  if (Array.isArray(payload)) {
+    return payload.map((item) => {
+      if (!isRecord(item)) {
+        return {
+          asset: "UNKNOWN",
+          clOrdID: "unknown",
+          ok: false,
+          message: "Unexpected SoDEX response item.",
+        };
+      }
+
+      const clOrdID = asString(item.clOrdID) ?? "unknown";
+      const order = orderByClOrdId.get(clOrdID);
+      const code = asNumber(item.code);
+      const error = asString(item.error);
+      const ok = code === 0;
+
+      return {
+        asset: order?.asset ?? clOrdID,
+        clOrdID,
+        displayName: order?.displayName,
+        ok,
+        message: ok
+          ? "Submitted"
+          : formatTradingErrorMessage(error ?? "Order rejected.", order?.displayName),
+      };
+    });
+  }
+
+  const batchError =
+    isRecord(payload) ? asString(payload.error) ?? asString(payload.message) : undefined;
+
+  if (batchError) {
+    return plan.orders.map((order) => ({
+      asset: order.asset,
+      clOrdID: order.clOrdID,
+      displayName: order.displayName,
+      ok: false,
+      message: formatTradingErrorMessage(batchError, order.displayName),
+    }));
+  }
+
+  return plan.orders.map((order) => ({
+    asset: order.asset,
+    clOrdID: order.clOrdID,
+    displayName: order.displayName,
+    ok: true,
+    message: "Submitted",
+  }));
 }
 
 export function planToBatchNewOrderRequest(
@@ -108,6 +197,7 @@ export function planToBatchNewOrderRequest(
 
 export async function submitSignedBasketTrade(
   request: BatchNewOrderRequest,
+  plan: BasketTradePlan,
   headers: {
     apiKeyName: string;
     nonce: bigint;
@@ -122,24 +212,41 @@ export async function submitSignedBasketTrade(
   }
 
   const body = buildBatchNewOrderBody(request);
-  const result = await requestSodexPost<unknown>("/trade/orders", "SoDEX Batch New Order", body, {
+  const result = await requestSodexPost<unknown>("/trade/orders/batch", "SoDEX Batch New Order", body, {
     "X-API-Key": headers.apiKeyName,
     "X-API-Sign": headers.signature,
     "X-API-Nonce": headers.nonce.toString(),
+    "X-API-Chain": getSodexChainId().toString(),
   });
 
   if (!result.ok) {
+    const legResults = parseBatchLegResults(request, plan, result.response);
     return {
       ok: false,
-      message: result.status.message,
-      response: result.error,
+      message: summarizeLegSubmitResults(legResults),
+      legResults,
+      response: result.response,
+    };
+  }
+
+  const legResults = parseBatchLegResults(request, plan, result.data);
+  const acceptedCount = legResults.filter((leg) => leg.ok).length;
+
+  if (acceptedCount < legResults.length) {
+    return {
+      ok: acceptedCount > 0,
+      message: summarizeLegSubmitResults(legResults),
+      submittedOrders: acceptedCount,
+      legResults,
+      response: result.data,
     };
   }
 
   return {
     ok: true,
-    message: `Submitted ${request.orders.length} basket orders to SoDEX.`,
-    submittedOrders: request.orders.length,
+    message: summarizeLegSubmitResults(legResults),
+    submittedOrders: acceptedCount,
+    legResults,
     response: result.data,
   };
 }
@@ -201,7 +308,7 @@ export async function submitBasketTradePlan(
 
   const signature = await signBatchNewOrderRequest(request, nonce, privateKey);
 
-  return submitSignedBasketTrade(request, {
+  return submitSignedBasketTrade(request, plan, {
     apiKeyName: credentials.apiKeyName,
     nonce,
     signature,
@@ -213,7 +320,9 @@ export function summarizeLegForTrade(leg: BasketLegReadiness) {
     return leg.message ?? "Not tradable";
   }
 
-  return leg.referencePrice
-    ? `Limit buy ~$${Math.round(leg.legNotionalUsd).toLocaleString()} @ ${leg.referencePrice}`
-    : "Tradable";
+  return leg.lastTradePrice
+    ? `Limit buy ~$${Math.round(leg.legNotionalUsd).toLocaleString()} @ ${leg.lastTradePrice}`
+    : leg.referencePrice
+      ? `Limit buy ~$${Math.round(leg.legNotionalUsd).toLocaleString()} @ ${leg.referencePrice}`
+      : "Tradable";
 }

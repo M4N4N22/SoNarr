@@ -1,15 +1,16 @@
-import { concat, keccak256, toBytes, type Hex } from "viem";
+import { hashTypedData, keccak256, toBytes, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 import { getSodexChainId, getSodexNetwork } from "./config";
 
-const EXCHANGE_ACTION_TYPE_HASH = keccak256(
-  toBytes("ExchangeAction(bytes32 payloadHash,uint64 nonce)"),
-);
+const EXCHANGE_ACTION_TYPES = {
+  ExchangeAction: [
+    { name: "payloadHash", type: "bytes32" },
+    { name: "nonce", type: "uint64" },
+  ],
+} as const;
 
-const DOMAIN_TYPE_HASH = keccak256(
-  toBytes("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-);
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 
 export const SODEX_ORDER_SIDE = {
   BUY: 1,
@@ -76,26 +77,31 @@ function hashPayload(payloadJson: string) {
   return keccak256(toBytes(payloadJson));
 }
 
-function domainSeparator(chainId: number) {
-  const nameHash = keccak256(toBytes("spot"));
-  const versionHash = keccak256(toBytes("1"));
-  const chainIdBytes = `0x${chainId.toString(16).padStart(64, "0")}` as Hex;
-  const verifyingContract = `0x${"0".repeat(64)}` as Hex;
-
-  return keccak256(
-    concat([DOMAIN_TYPE_HASH, nameHash, versionHash, chainIdBytes, verifyingContract]),
-  );
+export function getBatchNewOrderPayloadHash(request: BatchNewOrderRequest): Hex {
+  const paramsJson = serializeBatchNewOrderRequest(request);
+  const payloadJson = serializeActionPayload("batchNewOrder", paramsJson);
+  return hashPayload(payloadJson);
 }
 
-function exchangeActionStructHash(payloadHash: Hex, nonce: bigint) {
-  const nonceBytes = `0x${nonce.toString(16).padStart(64, "0")}` as Hex;
-  return keccak256(concat([EXCHANGE_ACTION_TYPE_HASH, payloadHash, nonceBytes]));
-}
-
-function exchangeActionDigest(payloadHash: Hex, nonce: bigint, chainId: number) {
-  const separator = domainSeparator(chainId);
-  const structHash = exchangeActionStructHash(payloadHash, nonce);
-  return keccak256(concat(["0x1901", separator, structHash]));
+export function getSodexExchangeTypedData(
+  payloadHash: Hex,
+  nonce: bigint,
+  chainId: number,
+) {
+  return {
+    domain: {
+      name: "spot" as const,
+      version: "1" as const,
+      chainId,
+      verifyingContract: ZERO_ADDRESS,
+    },
+    types: EXCHANGE_ACTION_TYPES,
+    primaryType: "ExchangeAction" as const,
+    message: {
+      payloadHash,
+      nonce,
+    },
+  };
 }
 
 export function buildBatchNewOrderBody(request: BatchNewOrderRequest) {
@@ -107,10 +113,8 @@ export function getBatchNewOrderDigest(
   nonce: bigint,
   chainId: number,
 ): Hex {
-  const paramsJson = serializeBatchNewOrderRequest(request);
-  const payloadJson = serializeActionPayload("batchNewOrder", paramsJson);
-  const payloadHash = hashPayload(payloadJson);
-  return exchangeActionDigest(payloadHash, nonce, chainId);
+  const payloadHash = getBatchNewOrderPayloadHash(request);
+  return hashTypedData(getSodexExchangeTypedData(payloadHash, nonce, chainId));
 }
 
 export function formatSodexSignature(signature: Hex): Hex {
@@ -122,7 +126,9 @@ export async function signBatchNewOrderRequest(
   nonce: bigint,
   privateKeyHex: Hex,
 ) {
-  const digest = getBatchNewOrderDigest(request, nonce, getSodexChainId(getSodexNetwork()));
+  const chainId = getSodexChainId(getSodexNetwork());
+  const payloadHash = getBatchNewOrderPayloadHash(request);
+  const digest = hashTypedData(getSodexExchangeTypedData(payloadHash, nonce, chainId));
   const account = privateKeyToAccount(privateKeyHex);
   const signature = await account.sign({ hash: digest });
 

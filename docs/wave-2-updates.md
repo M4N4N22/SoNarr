@@ -17,12 +17,13 @@ Wave 2 turns SoNarr from a narrative research prototype into an **evidence-bound
 | **CEX liquidity context** | `GET /currencies/{id}/pairs` cross-checks SoDEX legs (pair count, turnover, stable quotes) |
 | **SoDEX market module** | Symbols, orderbooks, tickers; exact asset matching; testnet `vUSDC` quote normalization |
 | **Basket readiness engine** | Notional-aware legs, slippage when ask depth exists, ticker fallback for limit pricing |
-| **Wallet-signed trading** | EIP-712 `batchNewOrder` in browser; server proxy submit; API key matched to wallet |
+| **Wallet-signed trading** | EIP-712 `signTypedData` in browser; per-leg submit to `/trade/orders/batch`; API key matched to wallet |
+| **Launch workflow** | Connect → size basket → preview → **confirmation dialogs** → sign one leg at a time |
+| **Trade status UX** | Per-leg results (submitted, cancel-only, signature error); in-progress signing banner |
 | **Account visibility** | Balances, orders, state, api-keys via server routes |
-| **Launch workflow** | Connect → size basket → preview (dry-run) → confirm → sign & submit |
 | **AI execution brief** | Gemini bounded to readiness JSON; 30-min cache |
 | **Radar performance** | React `cache()` + parallel category searches |
-| **Trading UI** | Flat terminal aesthetic; Radar \| SoDEX header; sidebar workspace |
+| **Trading UI** | Flat terminal aesthetic; Radar \| SoDEX header; confirmation dialogs; leg status panel |
 
 ### Explicitly out of scope
 
@@ -142,22 +143,38 @@ Used to display spot balance, open orders, and resolve signing key name (`findWa
 
 ```txt
 1. buildBasketTradePlan(readiness)
-     → limit prices from referencePrice per leg
-     → skip non-tradable legs with reason
+     → limit prices from lastTradePrice (ticker), quantized to tickSize / pricePrecision
+     → quantities from notional / price, floored to stepSize
+     → skip non-tradable / HALT symbols with reason
 
 2. POST /api/sodex/trade/basket  { dryRun: true, assets, totalNotionalUsd }
      → returns plan + readiness (no credentials)
 
-3. getBatchNewOrderDigest + walletClient.signMessage (EIP-712)
+3. User confirms in dialog; for each leg:
+     getBatchNewOrderPayloadHash + walletClient.signTypedData (EIP-712, domain spot, chain 138565)
+     POST /api/sodex/trade/basket/submit { single-order plan, signature, nonce, X-API-Chain }
 
-4. POST /api/sodex/trade/basket/submit
-     { plan, accountId, apiKeyName, nonce, signature }
-     → server POST /trade/orders with X-API-Key / X-API-Sign / X-API-Nonce
+4. UI shows per-leg status: submitted | cancel-only | signature error | other
 ```
 
-Implementation: `lib/sodex/signing.ts`, `trading.ts`; UI: `SodexTradingPanel`.
+Implementation: `lib/sodex/signing.ts`, `trading.ts`, `order-filters.ts`, `trading-errors.ts`; UI: `SodexTradingPanel`, `BasketTradeStatus`, `ConfirmDialog`.
 
 **Security model:** signing key material stays in the user wallet / SoDEX-registered API key flow. SoNarr never receives the user's private key. Server `SODEX_API_PRIVATE_KEY` is optional fallback for operator scripts only.
+
+### SoDEX order validation (Wave 2 hardening)
+
+| Issue | Mitigation |
+| --- | --- |
+| Wrong batch endpoint | `POST /trade/orders/batch` (not `/trade/orders`) |
+| Invalid signature format | EIP-712 `signTypedData` + SoDEX `0x01` signature prefix |
+| Chain mismatch | wagmi ValueChain Testnet (138565); `ensureSodexChain()` before sign |
+| `quantity is invalid` | Floor to symbol `stepSize`; enforce `minQuantity` / `minNotional` |
+| `price is invalid` | Price from **last trade** string, not wide testnet asks; tick + precision alignment |
+| Whole batch fails on one symbol | Submit **one order per signed request** |
+| Cancel-only maintenance | Classify error; show per-leg hint; other legs still attempt |
+| Bad recovery ID (one leg) | Classify as signature error; user stays on ValueChain and re-approves popup |
+
+Headers on submit: `X-API-Key`, `X-API-Sign`, `X-API-Nonce`, `X-API-Chain`.
 
 ### Operator fallback (optional)
 
@@ -176,6 +193,8 @@ SODEX_ACCOUNT_ID=12345
 | Market count | ~32 testnet pairs vs broader mainnet intent |
 | DeFi basket | Proxies (AAVE, UNI, LINK, ETH, AVAX) when on testnet |
 | One-sided books | Common; limit routing uses ticker/last — not hidden |
+| Limit price | Uses last trade, not orderbook ask (avoids stale testnet quotes) |
+| Cancel-only mode | SoDEX maintenance; new orders paused per symbol — retry later |
 | Slippage N/A | Expected on thin testnet asks; separate from routable status |
 | Notional | Default $500; max $950 UI cap vs $1000 faucet |
 
@@ -198,14 +217,20 @@ Layers 1–7 require SoSoValue. Layer 8 requires SoDEX + pairs. Any missing upst
 
 ```txt
 lib/sodex/
-  config.ts              Network, URLs, optional server credentials
+  config.ts              Network, URLs, chain IDs, optional server credentials
   client.ts              GET/POST + EndpointStatus
-  market.ts              Symbols, orderbook, tickers, slippage helpers
+  market.ts              Symbols, orderbook, tickers, symbolAcceptsNewOrders
   account.ts             Balances, orders, state, api-keys
   readiness.ts           getBasketExecutionReadiness()
-  signing.ts             EIP-712 batchNewOrder (viem)
-  trading.ts             Plan build, wallet + server submit paths
+  signing.ts             EIP-712 batchNewOrder (viem signTypedData)
+  trading.ts             Plan build, per-leg wallet submit, batch error parsing
+  order-filters.ts       tickSize / stepSize / last-trade limit pricing
+  trading-errors.ts      Cancel-only, signature, leg status classification
   basket-notional.ts     Testnet caps, defaults, clamp helpers
+
+lib/wagmi/
+  sodex-chains.ts        ValueChain testnet/mainnet definitions
+  ensure-sodex-chain.ts  Auto switch / add chain before signing
 
 lib/sosovalue/
   client.ts              Auth, fetch, responsePayload normalization
@@ -223,7 +248,9 @@ app/
 
 components/
   layout/site-header.tsx     Radar | SoDEX
+  ui/confirm-dialog.tsx      Connect / disconnect / notional / submit confirms
   sonarr/sodex-trading-panel.tsx
+  sonarr/basket-trade-status.tsx
   sonarr/execution-preview-section.tsx
   sonarr/basket-order-plan-table.tsx
   providers/web3-provider.tsx
@@ -238,7 +265,7 @@ Removed / superseded: duplicate `lib/sodex.ts` barrel, per-page nav headers, gra
 | **Overview** | Stats, workflow strip, brief |
 | **Evidence** | Headlines, signal stack, SoSoValue enrichment |
 | **Index** | Weights, methodology, risk — no SoDEX mixed in |
-| **Launch** | Route check, wallet trading, launch room, AI briefs |
+| **Launch** | Route check, wallet trading (dialogs + per-leg status), launch room, AI briefs |
 
 URL: `/narratives/[id]?tab=launch` syncs with header **SoDEX** active state.
 
@@ -295,10 +322,15 @@ Build must pass before deploy — App Router pages, route handlers, and wallet c
 ### Operator testnet demo
 
 1. Faucet vUSDC to connected wallet; transfer **Funding → Spot** on SoDEX testnet.
-2. Set basket size ≤ available spot (default $500; cap $950).
-3. Connect wallet — verify `vUSDC` balance and API key name.
-4. Preview basket → confirm checkbox → sign & submit.
-5. If legs show **Limit**, expect slippage N/A — still valid for GTC limits.
+2. Set basket size ≤ available spot (default $500; cap $950). Confirm dialog if changing size after preview.
+3. Connect wallet (confirm dialog) — verify `vUSDC` balance, API key name, and **ValueChain Testnet (138565)**.
+4. **Preview orders** → review plan table (skipped legs show reasons).
+5. **Sign & submit** → confirm dialog with full plan → approve **one signature per leg**.
+6. Read per-leg status:
+   - **Submitted** — order accepted
+   - **Cancel-only** — SoDEX maintenance on that market; retry later
+   - **Signature error** — stay on ValueChain and re-approve the wallet popup
+7. If legs show **Limit** in readiness, slippage N/A is expected — GTC limits still routable.
 
 ### Mainnet (when ready)
 
@@ -318,6 +350,7 @@ Build must pass before deploy — App Router pages, route handlers, and wallet c
 ## Wave 3 direction
 
 - Order fill polling and post-submit status UX
+- Retry failed legs without re-signing successful ones
 - Persisted baskets, public index pages, shareable launch assets
 - Deeper rebalance triggers from live score deltas
 - Mainnet hardening checklist (monitoring, alerting on endpoint failure rates)

@@ -24,6 +24,7 @@ export type BasketLegReadiness = {
   bestBid?: number;
   bestAsk?: number;
   referencePrice?: number;
+  lastTradePrice?: string;
   bidDepthUsd: number;
   askDepthUsd: number;
   slippagePct?: number;
@@ -139,6 +140,7 @@ export async function getBasketExecutionReadiness(
     const bestBid = orderbook?.bids[0]?.price;
     const bestAsk = orderbook?.asks[0]?.price;
     const referencePrice = resolveReferencePrice(orderbook, ticker);
+    const lastTradePrice = ticker?.lastTradePrice;
     const slippagePct =
       orderbook && orderbook.asks.length > 0
         ? estimateBuySlippagePct(orderbook.asks, legNotionalUsd)
@@ -174,6 +176,7 @@ export async function getBasketExecutionReadiness(
       bestBid,
       bestAsk,
       referencePrice,
+      lastTradePrice,
       bidDepthUsd,
       askDepthUsd,
       slippagePct,

@@ -37,9 +37,11 @@ export function BasketOrderPlanTable({
     plan.orders.reduce((sum, order) => sum + order.legNotionalUsd, 0) || totalNotionalUsd;
 
   return (
-    <div className="overflow-x-auto rounded-md bg-muted/40">
+    <div className="overflow-x-auto rounded-md border border-border bg-muted/40">
       <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs text-muted-foreground">
-        <span>{plan.orders.length} orders</span>
+        <span>
+          {plan.orders.length} limit {plan.orders.length === 1 ? "order" : "orders"} ready
+        </span>
         {totalEstimate ? <span className="tabular-nums">~{formatUsd(totalEstimate)}</span> : null}
       </div>
       <table className="min-w-full text-left text-xs">
@@ -49,7 +51,7 @@ export function BasketOrderPlanTable({
             <th className="px-3 py-2 font-medium">Market</th>
             <th className="px-3 py-2 font-medium">Wt</th>
             <th className="px-3 py-2 font-medium">Qty</th>
-            <th className="px-3 py-2 font-medium">Limit</th>
+            <th className="px-3 py-2 font-medium">Limit @ last</th>
             <th className="px-3 py-2 font-medium">Notional</th>
           </tr>
         </thead>
@@ -71,9 +73,20 @@ export function BasketOrderPlanTable({
         </tbody>
       </table>
       {plan.skipped.length > 0 ? (
-        <p className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
-          Skipped: {plan.skipped.map((item) => item.asset).join(", ")}
-        </p>
+        <div className="space-y-2 border-t border-border px-3 py-2">
+          <p className="text-[11px] font-medium text-muted-foreground">
+            Not included ({plan.skipped.length})
+          </p>
+          <ul className="space-y-1">
+            {plan.skipped.map((item) => (
+              <li key={item.asset} className="text-[11px] leading-4 text-muted-foreground">
+                <span className="font-medium text-foreground">{item.asset}</span>
+                {" — "}
+                {item.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
     </div>
   );

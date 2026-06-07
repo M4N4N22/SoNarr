@@ -23,7 +23,7 @@ SoSoValue (evidence)                    SoDEX (execution)
          Narrative workspace (/narratives/[id])
            Overview · Evidence · Index · Launch
                     |
-                    +-- Launch: route check → wallet → preview → sign & submit
+                    +-- Launch: route check → wallet → preview → confirm → sign (per leg)
 ```
 
 Primary navigation is **Radar** (find themes) and **SoDEX** (route and trade the current basket).
@@ -39,8 +39,8 @@ Landing, Narrative Radar, narrative workspace foundation, multi-layer signal sta
 - **SoSoValue enrichment layer** — shared HTTP client, normalized parsers, 14+ documented endpoints (feeds, currencies, pairs, indices, ETF, macro).
 - **Eight-layer signal stack** — each layer capped or marked pending/unavailable when live data is missing.
 - **SoDEX execution readiness** — per-leg symbol mapping, orderbook depth, slippage where ask liquidity exists, CEX pair context from SoSoValue.
-- **Wallet-signed basket trading** — wagmi connect, account snapshot, dry-run preview, EIP-712 sign in wallet, server proxy to SoDEX (no trading keys in the browser).
-- **Operator-safe defaults** — testnet-first config, editable basket notional capped to faucet limits, explicit confirm before submit.
+- **Wallet-signed basket trading** — wagmi on ValueChain (138565 testnet), account snapshot, dry-run preview, EIP-712 `signTypedData` in wallet, per-leg submit with structured results.
+- **Operator-safe defaults** — testnet-first config, editable basket notional capped to faucet limits, confirmation dialogs before connect/disconnect, size changes, and live submit.
 - **AI execution brief** — Gemini summary bounded to parsed readiness JSON only.
 - **Trading-terminal UI** — flat surfaces, stat grids, separated Launch vs index design concerns.
 
@@ -54,7 +54,7 @@ Next.js App Router (TypeScript), server-side integration modules, wagmi/viem for
 Browser
   SiteHeader: Radar | SoDEX
   Narrative workspace (sidebar + panel)
-  SodexTradingPanel (connect → preview → sign)
+  SodexTradingPanel (connect → preview → confirm → sign per leg)
 
 Next.js routes
   /radar                          Live radar
@@ -72,7 +72,7 @@ Server libraries
   lib/sosovalue/client.ts         Shared fetch, auth, response normalization
   lib/sosovalue/enrichment.ts     Klines, pairs, ETF, macro, featured
   lib/sosovalue.ts                Radar + narrative engine
-  lib/sodex/                      Market, account, readiness, signing, trading
+  lib/sodex/                      Market, account, readiness, signing, trading, order-filters
   lib/sonarr/basket-assets.ts     Narrative basket resolution (filters index/category tokens)
   lib/sonarr/signal-stack.ts      Multi-layer conviction model
   lib/types/data-source.ts        EndpointStatus + live/partial/unavailable
@@ -111,7 +111,7 @@ Official reference: [SoSoValue API documentation](https://sosovalue.gitbook.io/s
 
 ## SoDEX integration
 
-SoDEX is the **on-chain spot execution layer**. SoNarr maps narrative basket weights to SoDEX USDC markets, estimates readiness from live orderbooks and tickers, and supports **wallet-signed** batch limit buys.
+SoDEX is the **on-chain spot execution layer**. SoNarr maps narrative basket weights to SoDEX USDC markets, estimates readiness from live orderbooks and tickers, and supports **wallet-signed** limit buys submitted **one leg at a time** so a paused market does not block the rest of the basket.
 
 Official reference: [SoDEX API documentation](https://sodex.com/documentation/api)
 
@@ -137,9 +137,11 @@ Proxied at `/api/sodex/account/[address]/*` so the browser never calls SoDEX ori
 
 ### Trade path (wallet-signed, production-intended)
 
-1. User connects wallet on Launch tab; SoNarr reads balances and resolves API key where `publicKey` matches wallet (typically `default` on testnet).
-2. **Preview** — `POST /api/sodex/trade/basket` with `dryRun: true` builds limit prices from readiness reference prices; no credentials required.
-3. **Submit** — client signs EIP-712 `batchNewOrder` digest; `POST /api/sodex/trade/basket/submit` forwards signature + nonce. **Private keys never leave the wallet.**
+1. User connects wallet on Launch tab (confirmation dialog); SoNarr auto-prompts **ValueChain Testnet (138565)** when needed.
+2. **Preview orders** — `POST /api/sodex/trade/basket` with `dryRun: true` builds limit prices from each market’s **last trade** (not stale/wide testnet asks); quantities respect `stepSize`, `tickSize`, and `minNotional`.
+3. **Confirm & submit** — confirmation dialog shows the full order plan; user approves **one EIP-712 signature per leg**; `POST /api/sodex/trade/basket/submit` proxies each signed order to SoDEX `POST /trade/orders/batch`. **Private keys never leave the wallet.**
+
+Per-leg results distinguish **submitted**, **cancel-only** (testnet maintenance), **signature errors**, and other rejections — see Launch tab status panel.
 
 Optional server env (`SODEX_API_*`) exists only as an **operator fallback** for scripted demos — not required for the normal Launch flow.
 
@@ -153,7 +155,8 @@ Optional server env (`SODEX_API_*`) exists only as an **operator fallback** for 
 
 - `SODEX_NETWORK=testnet` (default)
 - Default basket notional **$500**; UI cap **$950** of **$1000** faucet vUSDC (fee headroom)
-- Limit-order readiness uses ticker/last when ask books are empty — labeled separately from market-buy slippage
+- Limit-order prices use **last trade** from SoDEX tickers (aligned to `tickSize` / `pricePrecision`) — not orderbook asks, which are often stale on testnet
+- Each leg is signed and submitted separately; **cancel-only mode** on one symbol does not block others
 
 ## Live data honesty
 
@@ -214,7 +217,7 @@ Optional operator-only server submit (not needed for wallet flow):
 | Secrets | Server env only; rotate keys per environment |
 | Network | Set `SODEX_NETWORK=mainnet` only with funded mainnet account + reviewed basket |
 | Notional | Size basket ≤ spot balance; testnet cap enforced in UI |
-| Submit | Dry-run preview → checkbox confirm → wallet sign |
+| Submit | Preview orders → confirm dialog → one wallet signature per leg |
 | Observability | Endpoint diagnostics on partial/unavailable radar loads |
 | Rate limits | Radar cache + brief cache reduce duplicate upstream calls |
 

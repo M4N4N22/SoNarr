@@ -46,6 +46,7 @@ export {
   getSpotSymbols,
   normalizeAssetToken,
   resolveSpotSymbol,
+  symbolAcceptsNewOrders,
 } from "./market";
 
 export type {
@@ -62,6 +63,8 @@ export {
   buildBatchNewOrderBody,
   formatSodexSignature,
   getBatchNewOrderDigest,
+  getBatchNewOrderPayloadHash,
+  getSodexExchangeTypedData,
   signBatchNewOrderRequest,
   SODEX_ORDER_SIDE,
   SODEX_ORDER_TYPE,
@@ -77,6 +80,7 @@ export {
   buildBasketTradePlan,
   findWalletApiKeyName,
   planToBatchNewOrderRequest,
+  singleOrderPlan,
   submitBasketTradePlan,
   submitSignedBasketTrade,
   summarizeLegForTrade,

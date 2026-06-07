@@ -150,7 +150,7 @@ export async function requestSodexPost<T>(
   name: string,
   body: string,
   headers: Record<string, string>,
-): Promise<{ ok: true; data: T } | { ok: false; status: EndpointStatus; error?: string }> {
+): Promise<{ ok: true; data: T } | { ok: false; status: EndpointStatus; error?: string; response?: unknown }> {
   const startedAt = Date.now();
   const endpoint = `POST ${path.split("?")[0]}`;
   const url = `${getSodexBaseUrl()}${path}`;
@@ -188,6 +188,7 @@ export async function requestSodexPost<T>(
           itemCount: 0,
         },
         error: asString(isRecord(payload) ? payload.error : undefined),
+        response: payload,
       };
     }
 
