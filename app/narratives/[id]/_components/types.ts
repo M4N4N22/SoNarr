@@ -125,10 +125,9 @@ export const narrativeTabs: Array<{
   {
     id: "launch",
     label: "Launch",
-    hint: "SoDEX checks, wallet trade, and publish kit.",
-    title: "Launch & SoDEX",
-    description:
-      "Check on-chain route readiness, connect your wallet to preview or submit a basket, then grab launch copy or AI summaries.",
+    hint: "Buy the basket on SoDEX.",
+    title: "SoDEX",
+    description: "Size the basket, review limit orders, and buy with wallet signatures.",
   },
 ];
 

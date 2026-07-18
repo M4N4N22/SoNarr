@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import { SonarrLogo } from "@/components/layout/sonarr-logo";
+import { WalletHeaderControls } from "@/components/layout/wallet-header-controls";
 import { cn } from "@/lib/utils";
 
 function sodexHref(narrativeId?: string) {
@@ -34,12 +35,12 @@ function SiteHeaderInner({
   ] as const;
 
   return (
-    <header className="sticky top-0 z-50 py-4 bg-gradient-to-b from-background/95 to-background/80 backdrop-blur-sm ">
-      <div className="mx-auto flex h-12 max-w-7xl items-center gap-6 px-4 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-50 bg-gradient-to-b from-background/95 to-background/80 py-3 backdrop-blur-sm">
+      <div className="relative mx-auto flex min-h-12 max-w-7xl items-center gap-4 px-4 sm:gap-6 sm:px-6 lg:px-8">
         <SonarrLogo href={variant === "marketing" ? "/" : "/radar"} size="sm" showWordmark />
 
         {variant === "app" ? (
-          <nav className="flex h-full items-stretch gap-6" aria-label="Primary">
+          <nav className="flex h-full items-stretch gap-4 sm:gap-6" aria-label="Primary">
             {links.map((link) => (
               <Link
                 key={link.id}
@@ -72,13 +73,17 @@ function SiteHeaderInner({
         )}
 
         {variant === "marketing" ? (
-          <Link
-            href="/radar"
-            className="ml-auto rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-          >
-            Launch app
-          </Link>
-        ) : null}
+          <div className="ml-auto flex items-center gap-2">
+            <Link
+              href="/radar"
+              className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            >
+              Launch app
+            </Link>
+          </div>
+        ) : (
+          <WalletHeaderControls />
+        )}
       </div>
     </header>
   );

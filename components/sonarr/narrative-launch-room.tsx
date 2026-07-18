@@ -304,6 +304,64 @@ export function NarrativeLaunchRoom({
     },
   ];
 
+  const body = (
+    <>
+      {compact ? (
+        <div className="space-y-2">
+          {launchAssets.map((asset, index) => (
+            <LaunchAssetAccordion
+              key={asset.title}
+              {...asset}
+              defaultOpen={index === 0}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-1">
+          {launchAssets.map((asset) => (
+            <Card key={asset.title} className="bg-background/50 shadow-none">
+              <CardHeader>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <CardTitle>{asset.title}</CardTitle>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {asset.description}
+                    </p>
+                  </div>
+                  <CopyButton label={asset.action} text={asset.text} />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <TextBlock text={asset.text} />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Card className="bg-background/50 shadow-none">
+        <CardHeader>
+          <CardTitle>Index maintenance rules</CardTitle>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Operator checklist for keeping the thematic basket disciplined over time.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <TextBlock text={indexRules} />
+        </CardContent>
+      </Card>
+
+      <p className="text-sm leading-6 text-muted-foreground">
+        Edit before sharing. Research drafts only — not financial advice and not trade
+        instructions.
+      </p>
+    </>
+  );
+
+  if (embedded && compact) {
+    return <div className="space-y-4">{body}</div>;
+  }
+
   const content = (
     <Card className="overflow-hidden bg-card/85">
       <CardHeader className={compact ? "border-b border-border p-4 sm:p-5" : "border-b border-border p-6 sm:p-8"}>
@@ -321,55 +379,7 @@ export function NarrativeLaunchRoom({
         </div>
       </CardHeader>
       <CardContent className={compact ? "space-y-4 p-4 sm:p-5" : "space-y-6 p-6 sm:p-8"}>
-        {compact ? (
-          <div className="space-y-2">
-            {launchAssets.map((asset, index) => (
-              <LaunchAssetAccordion
-                key={asset.title}
-                {...asset}
-                defaultOpen={index === 0}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="grid gap-4 lg:grid-cols-1">
-            {launchAssets.map((asset) => (
-              <Card key={asset.title} className="bg-background/50 shadow-none">
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <CardTitle>{asset.title}</CardTitle>
-                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        {asset.description}
-                      </p>
-                    </div>
-                    <CopyButton label={asset.action} text={asset.text} />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <TextBlock text={asset.text} />
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-
-        <Card className="bg-background/50 shadow-none">
-          <CardHeader>
-            <CardTitle>Index maintenance rules</CardTitle>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Operator checklist for keeping the thematic basket disciplined over time.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <TextBlock text={indexRules} />
-          </CardContent>
-        </Card>
-
-        <p className="text-sm leading-6 text-muted-foreground">
-          Edit before sharing. Research drafts only — not financial advice and not trade
-          instructions.
-        </p>
+        {body}
       </CardContent>
     </Card>
   );

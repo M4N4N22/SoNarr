@@ -38,6 +38,7 @@ export {
   getAccountBalances,
   getAccountOrders,
   getAccountState,
+  sodexOnboardingUrl,
 } from "./account";
 
 export type {

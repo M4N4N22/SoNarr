@@ -34,8 +34,20 @@ export function getSodexChainId(network = getDefaultSodexNetwork()) {
 }
 
 export function getSodexBaseUrl(network = getDefaultSodexNetwork()) {
-  if (process.env.SODEX_API_BASE_URL) {
-    return process.env.SODEX_API_BASE_URL.replace(/\/$/, "");
+  const envUrl = process.env.SODEX_API_BASE_URL?.replace(/\/$/, "");
+
+  if (envUrl) {
+    const envLooksMainnet = /mainnet/i.test(envUrl);
+    const envLooksTestnet = /testnet/i.test(envUrl);
+
+    // Honor custom gateway when it matches the requested network, or when it is neither.
+    if (
+      (!envLooksMainnet && !envLooksTestnet) ||
+      (network === "mainnet" && envLooksMainnet) ||
+      (network === "testnet" && envLooksTestnet)
+    ) {
+      return envUrl;
+    }
   }
 
   return network === "mainnet" ? MAINNET_BASE_URL : TESTNET_BASE_URL;
