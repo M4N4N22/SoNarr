@@ -2,59 +2,45 @@ import { NextResponse } from "next/server";
 import type { Hex } from "viem";
 
 import {
-  buildBatchNewOrderBody,
-  planToBatchNewOrderRequest,
-  submitSignedBasketTrade,
-  type BasketTradePlan,
+  buildBatchCancelOrderBody,
+  planToBatchCancelRequest,
+  submitSignedBatchCancel,
 } from "@/lib/sodex";
 import { resolveSodexNetwork } from "@/lib/sodex/network-preference";
 
-type SubmitBody = {
+type CancelBody = {
   accountId?: number;
   apiKeyName?: string;
   nonce?: number | string;
-  plan?: BasketTradePlan;
   signature?: string;
   network?: string;
+  cancels?: Array<{
+    symbolID: number;
+    orderID?: number;
+    origClOrdID?: string;
+    asset?: string;
+  }>;
 };
 
-function parsePlan(raw: unknown): BasketTradePlan | undefined {
-  if (typeof raw !== "object" || raw === null) {
-    return undefined;
-  }
-
-  const record = raw as Record<string, unknown>;
-  const orders = Array.isArray(record.orders) ? record.orders : [];
-  const skipped = Array.isArray(record.skipped) ? record.skipped : [];
-
-  if (orders.length === 0) {
-    return undefined;
-  }
-
-  return {
-    orders: orders as BasketTradePlan["orders"],
-    skipped: skipped as BasketTradePlan["skipped"],
-  };
-}
-
 export async function POST(request: Request) {
-  let body: SubmitBody;
+  let body: CancelBody;
 
   try {
-    body = (await request.json()) as SubmitBody;
+    body = (await request.json()) as CancelBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const plan = parsePlan(body.plan);
   const accountId = Number(body.accountId);
   const apiKeyName = body.apiKeyName?.trim();
   const signature = body.signature?.trim();
   const nonceValue = body.nonce === undefined ? undefined : BigInt(body.nonce);
+  const network = resolveSodexNetwork(body.network);
+  const cancels = Array.isArray(body.cancels) ? body.cancels : [];
 
-  if (!plan || !Number.isFinite(accountId) || accountId <= 0) {
+  if (!Number.isFinite(accountId) || accountId <= 0 || cancels.length === 0) {
     return NextResponse.json(
-      { error: "Provide a prepared trade plan and valid accountId." },
+      { error: "Provide accountId and at least one cancel target." },
       { status: 400 },
     );
   }
@@ -66,11 +52,22 @@ export async function POST(request: Request) {
     );
   }
 
-  const batchRequest = planToBatchNewOrderRequest(plan, accountId);
-  const network = resolveSodexNetwork(body.network);
-  const result = await submitSignedBasketTrade(
+  const validCancels = cancels.filter(
+    (item) =>
+      typeof item.symbolID === "number" &&
+      (typeof item.orderID === "number" || typeof item.origClOrdID === "string"),
+  );
+
+  if (validCancels.length === 0) {
+    return NextResponse.json(
+      { error: "Each cancel needs symbolID plus orderID or origClOrdID." },
+      { status: 400 },
+    );
+  }
+
+  const batchRequest = planToBatchCancelRequest(validCancels, accountId);
+  const result = await submitSignedBatchCancel(
     batchRequest,
-    plan,
     {
       apiKeyName,
       nonce: nonceValue,
@@ -80,7 +77,7 @@ export async function POST(request: Request) {
   );
 
   return NextResponse.json({
-    requestBody: buildBatchNewOrderBody(batchRequest),
+    requestBody: buildBatchCancelOrderBody(batchRequest),
     result,
     network,
   });

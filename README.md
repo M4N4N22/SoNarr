@@ -6,7 +6,7 @@ SoNarr connects **SoSoValue market intelligence** to **SoDEX spot execution** in
 
 This is not a generic news reader or an AI chatbot. Evidence comes from SoSoValue and SoDEX first; Gemini synthesizes only after structured data exists. The UI is intentionally honest when APIs fail, rate-limit, or return partial payloads.
 
-**Docs:** [Wave 1](./docs/wave-1-updates.md) · [Wave 2](./docs/wave-2-updates.md)
+**Docs:** [Wave 1](./docs/wave-1-updates.md) · [Wave 2](./docs/wave-2-updates.md) · [Wave 3](./docs/wave-3-updates.md)
 
 ## Product loop
 
@@ -21,9 +21,10 @@ SoSoValue (evidence)                    SoDEX (execution)
                     |                              |
                     v                              v
          Narrative workspace (/narratives/[id])
-           Overview · Evidence · Index · Launch
+           Overview · Evidence · Index · Lifecycle · Launch
                     |
-                    +-- Launch: route check → wallet → preview → confirm → sign (per leg)
+                    +-- Launch: network switch → route check → wallet → preview → confirm → sign (per leg)
+                        → fill poll · retry failed · cancel open
 ```
 
 Primary navigation is **Radar** (find themes) and **SoDEX** (route and trade the current basket).
@@ -34,17 +35,25 @@ Primary navigation is **Radar** (find themes) and **SoDEX** (route and trade the
 
 Landing, Narrative Radar, narrative workspace foundation, multi-layer signal stack, Gemini narrative brief, Launch Room copy kit, endpoint diagnostics, live-data-first behavior.
 
-### Wave 2 (current)
+### Wave 2
 
 - **SoSoValue enrichment layer** — shared HTTP client, normalized parsers, 14+ documented endpoints (feeds, currencies, pairs, indices, ETF, macro).
 - **Eight-layer signal stack** — each layer capped or marked pending/unavailable when live data is missing.
 - **SoDEX execution readiness** — per-leg symbol mapping, orderbook depth, slippage where ask liquidity exists, CEX pair context from SoSoValue.
-- **Wallet-signed basket trading** — wagmi on ValueChain (138565 testnet), account snapshot, dry-run preview, EIP-712 `signTypedData` in wallet, per-leg submit with structured results.
-- **Operator-safe defaults** — testnet-first config, editable basket notional capped to faucet limits, confirmation dialogs before connect/disconnect, size changes, and live submit.
+- **Wallet-signed basket trading** — wagmi on ValueChain, account snapshot, dry-run preview, EIP-712 `signTypedData` in wallet, per-leg submit with structured results.
+- **Operator-safe defaults** — testnet-first config, editable basket notional, confirmation dialogs before connect/disconnect, size changes, and live submit.
 - **AI execution brief** — Gemini summary bounded to parsed readiness JSON only.
-- **Trading-terminal UI** — flat surfaces, stat grids, separated Launch vs index design concerns.
 
-Full changelog: [docs/wave-2-updates.md](./docs/wave-2-updates.md).
+### Wave 3 (current)
+
+- **Narrative lifecycle** — score snapshots, stage machine, forward-return validation vs SoSoValue klines.
+- **Deeper historical scoring** — 7d/30d signed returns, volatility, drawdown, consistency.
+- **Asset provenance** — evidence-ranked extraction with leg reasons on the Index tab.
+- **Post-submit loop** — fill polling, retry failed legs, cancel open orders, trade journal.
+- **Decision assist** — bounded hold / size-down / wait / rebalance from lifecycle + readiness.
+- **Mainnet-ready operator controls** — UI network switch with mainnet confirm, balance-aware sizing, optional Upstash durable store (`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`), `SODEX_NETWORK_LOCK` for locked deploys.
+
+Full changelogs: [docs/wave-2-updates.md](./docs/wave-2-updates.md) · [docs/wave-3-updates.md](./docs/wave-3-updates.md).
 
 ## Architecture
 
@@ -198,6 +207,9 @@ SoDEX (defaults work for read + wallet submit on testnet):
 
 ```bash
 SODEX_NETWORK=testnet
+# SODEX_NETWORK_LOCK=testnet
+# UPSTASH_REDIS_REST_URL=
+# UPSTASH_REDIS_REST_TOKEN=
 # Optional overrides:
 # SODEX_BASKET_NOTIONAL_USD=500
 # SODEX_API_BASE_URL=https://testnet-gw.sodex.dev/api/v1/spot

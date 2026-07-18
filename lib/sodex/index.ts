@@ -1,4 +1,13 @@
-export type { SodexNetwork } from "./config";
+export type { SodexNetwork } from "./network-preference";
+export {
+  getDefaultSodexNetwork,
+  isSodexNetworkLocked,
+  parseSodexNetwork,
+  resolveSodexNetwork,
+  SODEx_NETWORK_COOKIE,
+  SODEx_NETWORK_STORAGE_KEY,
+} from "./network-preference";
+
 export {
   getSodexBaseUrl,
   getSodexBasketNotionalUsd,
@@ -10,6 +19,7 @@ export {
 } from "./config";
 
 export {
+  clampBasketNotionalForBalance,
   clampBasketNotionalUsd,
   getSodexBasketNotionalLimits,
   resolveBasketNotionalUsd,
@@ -56,12 +66,16 @@ export type {
 export { getBasketExecutionReadiness } from "./readiness";
 
 export type {
+  BatchCancelOrderItem,
+  BatchCancelOrderRequest,
   BatchNewOrderItem,
   BatchNewOrderRequest,
 } from "./signing";
 export {
+  buildBatchCancelOrderBody,
   buildBatchNewOrderBody,
   formatSodexSignature,
+  getBatchCancelOrderPayloadHash,
   getBatchNewOrderDigest,
   getBatchNewOrderPayloadHash,
   getSodexExchangeTypedData,
@@ -79,9 +93,12 @@ export type {
 export {
   buildBasketTradePlan,
   findWalletApiKeyName,
+  getBatchCancelTypedData,
+  planToBatchCancelRequest,
   planToBatchNewOrderRequest,
   singleOrderPlan,
   submitBasketTradePlan,
   submitSignedBasketTrade,
+  submitSignedBatchCancel,
   summarizeLegForTrade,
 } from "./trading";

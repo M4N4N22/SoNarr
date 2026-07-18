@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Activity, AlertTriangle, LineChart, Sparkles } from "lucide-react";
 
 import { AiDecisionAssist } from "@/components/sonarr/ai-decision-assist";
@@ -15,8 +16,12 @@ function formatPct(value?: number) {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
+function lifecycleStorageKey(narrativeId: string) {
+  return `sonarr:lifecycle:${narrativeId}`;
+}
+
 export function LifecyclePanel({ data }: { data: NarrativeWorkspaceProps }) {
-  const { lifecycle, decisionAssistInput } = data;
+  const { lifecycle, decisionAssistInput, narrative } = data;
   const validation = lifecycle.validation;
   const scoreTrail = lifecycle.snapshots.map((snap) => ({
     id: snap.at,
@@ -28,6 +33,39 @@ export function LifecyclePanel({ data }: { data: NarrativeWorkspaceProps }) {
     hint: `${snap.stage} · ${new Date(snap.at).toLocaleString()}`,
   }));
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        lifecycleStorageKey(narrative.id),
+        JSON.stringify(lifecycle.snapshots),
+      );
+    } catch {
+      // ignore
+    }
+
+    try {
+      const raw = window.localStorage.getItem(lifecycleStorageKey(narrative.id));
+      if (!raw) {
+        return;
+      }
+      const snapshots = JSON.parse(raw);
+      if (!Array.isArray(snapshots) || snapshots.length <= lifecycle.snapshots.length) {
+        return;
+      }
+      void fetch("/api/lifecycle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mergeClient: true,
+          narrativeId: narrative.id,
+          snapshots,
+        }),
+      });
+    } catch {
+      // ignore
+    }
+  }, [lifecycle.snapshots, narrative.id]);
+
   return (
     <div className="space-y-3">
       <PageSection
@@ -38,6 +76,9 @@ export function LifecyclePanel({ data }: { data: NarrativeWorkspaceProps }) {
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{lifecycle.stage}</Badge>
           <Badge variant="muted">{lifecycle.snapshots.length} snapshots</Badge>
+          {lifecycle.persistenceBackend ? (
+            <Badge variant="outline">{lifecycle.persistenceBackend}</Badge>
+          ) : null}
           {validation?.rebalanceSuggested ? (
             <Badge variant="positive">Rebalance suggested</Badge>
           ) : null}

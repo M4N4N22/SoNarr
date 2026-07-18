@@ -1,7 +1,7 @@
 import { dataSourceMode, type EndpointStatus } from "@/lib/types/data-source";
 
 import { resolveBasketNotionalUsd } from "./basket-notional";
-import { getSodexBasketNotionalUsd, getSodexNetwork } from "./config";
+import { getDefaultSodexNetwork, getSodexBasketNotionalUsd, type SodexNetwork } from "./config";
 import {
   estimateBuySlippagePct,
   getMarketTickers,
@@ -49,11 +49,11 @@ export type BasketExecutionReadiness = {
 export async function getBasketExecutionReadiness(
   weightedAssets: Array<{ asset: string; weight: number }>,
   totalNotionalUsd = getSodexBasketNotionalUsd(),
+  network: SodexNetwork = getDefaultSodexNetwork(),
 ): Promise<BasketExecutionReadiness> {
   const updatedAt = new Date().toISOString();
-  const network = getSodexNetwork();
   const resolvedNotionalUsd = resolveBasketNotionalUsd(totalNotionalUsd, network);
-  const symbolsResult = await getSpotSymbols();
+  const symbolsResult = await getSpotSymbols(false, network);
   const endpoints: EndpointStatus[] = [...symbolsResult.endpoints];
 
   if (symbolsResult.data.length === 0) {
@@ -80,7 +80,7 @@ export async function getBasketExecutionReadiness(
     };
   }
 
-  const tickersResult = await getMarketTickers();
+  const tickersResult = await getMarketTickers(network);
   endpoints.push(tickersResult.status);
   const tickerBySymbol = new Map(
     tickersResult.ok ? tickersResult.data.map((ticker) => [ticker.symbol, ticker]) : [],
@@ -107,7 +107,7 @@ export async function getBasketExecutionReadiness(
         };
       }
 
-      const orderbookResult = await getOrderBook(symbol.name);
+      const orderbookResult = await getOrderBook(symbol.name, network);
       endpoints.push(orderbookResult.status);
 
       return {

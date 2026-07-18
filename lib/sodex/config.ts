@@ -2,8 +2,19 @@ import {
   getSodexBasketNotionalLimits,
   resolveBasketNotionalUsd,
 } from "./basket-notional";
+import {
+  getDefaultSodexNetwork,
+  isSodexNetworkLocked,
+  resolveSodexNetwork,
+  type SodexNetwork,
+} from "./network-preference";
 
-export type SodexNetwork = "testnet" | "mainnet";
+export type { SodexNetwork };
+export {
+  getDefaultSodexNetwork,
+  isSodexNetworkLocked,
+  resolveSodexNetwork,
+};
 
 const TESTNET_BASE_URL = "https://testnet-gw.sodex.dev/api/v1/spot";
 const MAINNET_BASE_URL = "https://mainnet-gw.sodex.dev/api/v1/spot";
@@ -13,29 +24,16 @@ export const SODEX_CHAIN_IDS = {
   mainnet: 286623,
 } as const;
 
-export function getSodexChainId(network = getSodexNetwork()) {
+/** Env default alias — prefer resolveSodexNetwork(override) when an operator choice exists. */
+export function getSodexNetwork(): SodexNetwork {
+  return getDefaultSodexNetwork();
+}
+
+export function getSodexChainId(network = getDefaultSodexNetwork()) {
   return SODEX_CHAIN_IDS[network];
 }
 
-export function getSodexNetwork(): SodexNetwork {
-  const configured = process.env.SODEX_NETWORK?.trim().toLowerCase();
-
-  if (configured === "mainnet") {
-    return "mainnet";
-  }
-
-  if (configured === "testnet") {
-    return "testnet";
-  }
-
-  if (process.env.SODEX_API_BASE_URL?.includes("mainnet")) {
-    return "mainnet";
-  }
-
-  return "testnet";
-}
-
-export function getSodexBaseUrl(network = getSodexNetwork()) {
+export function getSodexBaseUrl(network = getDefaultSodexNetwork()) {
   if (process.env.SODEX_API_BASE_URL) {
     return process.env.SODEX_API_BASE_URL.replace(/\/$/, "");
   }
@@ -43,11 +41,11 @@ export function getSodexBaseUrl(network = getSodexNetwork()) {
   return network === "mainnet" ? MAINNET_BASE_URL : TESTNET_BASE_URL;
 }
 
-export function getSodexNetworkLabel(network = getSodexNetwork()) {
+export function getSodexNetworkLabel(network = getDefaultSodexNetwork()) {
   return network === "mainnet" ? "Mainnet" : "Testnet";
 }
 
-export function getSodexBasketNotionalUsd(network = getSodexNetwork()) {
+export function getSodexBasketNotionalUsd(network = getDefaultSodexNetwork()) {
   const configured = Number(process.env.SODEX_BASKET_NOTIONAL_USD);
 
   if (Number.isFinite(configured) && configured > 0) {

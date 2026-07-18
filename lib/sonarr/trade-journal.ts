@@ -1,5 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { kvGetJson, kvSetJson } from "@/lib/persistence/kv-store";
 
 export type TradeJournalFill = {
   symbol?: string;
@@ -17,6 +16,7 @@ export type TradeJournalEntry = {
   narrativeId: string;
   narrativeTitle: string;
   wallet?: string;
+  network?: string;
   submittedLegs: number;
   successLegs: number;
   message: string;
@@ -26,26 +26,17 @@ export type TradeJournalEntry = {
 export type TradeJournal = {
   updatedAt: string;
   entries: TradeJournalEntry[];
+  persistenceBackend?: "upstash" | "filesystem";
 };
 
-const DATA_DIR = path.join(process.cwd(), "data", "trade-journal");
-const STORE_PATH = path.join(DATA_DIR, "journal.json");
-
-async function ensureDir() {
-  await mkdir(DATA_DIR, { recursive: true });
-}
+const JOURNAL_KEY = "sonarr:trade-journal";
 
 export async function readTradeJournal(): Promise<TradeJournal> {
-  try {
-    const raw = await readFile(STORE_PATH, "utf8");
-    const parsed = JSON.parse(raw) as TradeJournal;
-    if (!parsed || !Array.isArray(parsed.entries)) {
-      return { updatedAt: new Date().toISOString(), entries: [] };
-    }
-    return parsed;
-  } catch {
+  const parsed = await kvGetJson<TradeJournal>(JOURNAL_KEY);
+  if (!parsed || !Array.isArray(parsed.entries)) {
     return { updatedAt: new Date().toISOString(), entries: [] };
   }
+  return parsed;
 }
 
 export async function appendTradeJournalEntry(
@@ -58,6 +49,7 @@ export async function appendTradeJournalEntry(
     narrativeId: entry.narrativeId,
     narrativeTitle: entry.narrativeTitle,
     wallet: entry.wallet,
+    network: entry.network,
     submittedLegs: entry.submittedLegs,
     successLegs: entry.successLegs,
     message: entry.message,
@@ -70,12 +62,7 @@ export async function appendTradeJournalEntry(
     entries,
   };
 
-  try {
-    await ensureDir();
-    await writeFile(STORE_PATH, JSON.stringify(updated, null, 2), "utf8");
-  } catch {
-    // Ephemeral hosts may reject writes.
-  }
-
+  const { backend } = await kvSetJson(JOURNAL_KEY, updated);
+  updated.persistenceBackend = backend;
   return updated;
 }

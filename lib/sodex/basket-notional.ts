@@ -1,4 +1,4 @@
-import type { SodexNetwork } from "./config";
+type SodexNetwork = "testnet" | "mainnet";
 
 export const SODEX_TESTNET_FAUCET_USDC = 1000;
 export const SODEX_TESTNET_FEE_BUFFER_USD = 50;
@@ -20,12 +20,34 @@ export function getSodexBasketNotionalLimits(network: SodexNetwork): BasketNotio
     };
   }
 
+  // Mainnet: no faucet cap. UI also clamps to available spot − fee buffer when balance is known.
   return {
-    min: 10,
-    max: 1_000_000,
-    default: 5000,
-    feeBufferUsd: 0,
+    min: 25,
+    max: 250_000,
+    default: 1000,
+    feeBufferUsd: 25,
   };
+}
+
+/** Clamp notional using network limits and optional live spot balance. */
+export function clampBasketNotionalForBalance(
+  value: number,
+  network: SodexNetwork,
+  availableUsdc?: number,
+) {
+  const limits = getSodexBasketNotionalLimits(network);
+  let max = limits.max;
+
+  if (typeof availableUsdc === "number" && Number.isFinite(availableUsdc)) {
+    const spendable = Math.max(0, availableUsdc - limits.feeBufferUsd);
+    max = Math.min(max, spendable);
+  }
+
+  if (max < limits.min) {
+    return Math.max(0, Math.round(max));
+  }
+
+  return Math.min(max, Math.max(limits.min, Math.round(value)));
 }
 
 export function clampBasketNotionalUsd(value: number, network: SodexNetwork) {
