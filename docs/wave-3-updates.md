@@ -43,7 +43,3 @@ Launch submit
 2. **Index** tab → leg provenance.
 3. **Launch** → preview → sign & submit → watch fill polling; retry failed legs if needed.
 4. Generate **decision assist** on Lifecycle (cites stage + readiness).
-
-## Internal docs
-
-See `internal-docs/wave-3-judge-gap-analysis.md` and `internal-docs/wave-3-build-plan.md` (gitignored local folder if configured).
