@@ -34,6 +34,7 @@ type SodexTradingPanelProps = {
   executionReadiness: BasketExecutionReadiness;
   weightedAssets: WeightedAsset[];
   narrativeTitle: string;
+  narrativeId?: string;
   basketNotionalUsd: number;
   onBasketNotionalChange: (value: number) => void;
   loadingReadiness?: boolean;
@@ -43,7 +44,16 @@ type AccountSnapshot = {
   accountId?: number;
   apiKeyName?: string;
   balances: Array<{ coin: string; available?: number; total?: number }>;
-  orders: Array<{ symbol?: string; side?: string; price?: number; quantity?: number }>;
+  orders: Array<{
+    symbol?: string;
+    side?: string;
+    price?: number;
+    quantity?: number;
+    filledQuantity?: number;
+    remainingQuantity?: number;
+    status?: string;
+    clOrdId?: string;
+  }>;
 };
 
 type DialogKind = "connect" | "disconnect" | "notional" | "submit" | null;
@@ -111,6 +121,8 @@ async function submitSignedPlanLeg(
 export function SodexTradingPanel({
   executionReadiness,
   weightedAssets,
+  narrativeTitle,
+  narrativeId,
   basketNotionalUsd,
   onBasketNotionalChange,
   loadingReadiness = false,
@@ -126,6 +138,7 @@ export function SodexTradingPanel({
   const [submittingMessage, setSubmittingMessage] = useState<string | undefined>();
   const [loadingAccount, setLoadingAccount] = useState(false);
   const [loadingTrade, setLoadingTrade] = useState(false);
+  const [pollingFills, setPollingFills] = useState(false);
   const [activeDialog, setActiveDialog] = useState<DialogKind>(null);
   const [pendingNotional, setPendingNotional] = useState<number | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -182,12 +195,6 @@ export function SodexTradingPanel({
     usdcBalance,
   ]);
 
-  useEffect(() => {
-    setTradePlan(null);
-    setTradeResult(null);
-    setPreviewError(null);
-  }, [basketNotionalUsd, weightedAssets]);
-
   const refreshAccount = useCallback(async () => {
     if (!address) {
       return;
@@ -230,6 +237,96 @@ export function SodexTradingPanel({
     }
   }, [address, refreshAccount]);
 
+  useEffect(() => {
+    setTradePlan(null);
+    setTradeResult(null);
+    setPreviewError(null);
+  }, [basketNotionalUsd, weightedAssets]);
+
+  const failedLegAssets = useMemo(() => {
+    const legs = tradeResult?.legResults ?? [];
+    return new Set(legs.filter((leg) => !leg.ok).map((leg) => leg.asset));
+  }, [tradeResult]);
+
+  const trackedOrders = useMemo(() => {
+    const clOrdIds = new Set(
+      (tradeResult?.legResults ?? [])
+        .filter((leg) => leg.ok)
+        .map((leg) => leg.clOrdID)
+        .filter(Boolean),
+    );
+    if (clOrdIds.size === 0) {
+      return accountSnapshot?.orders.slice(0, 8) ?? [];
+    }
+    return (accountSnapshot?.orders ?? []).filter(
+      (order) => order.clOrdId && clOrdIds.has(order.clOrdId),
+    );
+  }, [accountSnapshot?.orders, tradeResult]);
+
+  async function appendJournal(
+    result: BasketTradeResult,
+    fills: AccountSnapshot["orders"],
+  ) {
+    try {
+      await fetch("/api/trade-journal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          narrativeId: narrativeId ?? narrativeTitle.toLowerCase().replace(/\s+/g, "-"),
+          narrativeTitle,
+          wallet: address,
+          submittedLegs: result.legResults?.length ?? 0,
+          successLegs: result.legResults?.filter((leg) => leg.ok).length ?? 0,
+          message: result.message || summarizeSubmitMessage(result),
+          fills: fills.map((order) => ({
+            symbol: order.symbol,
+            status: order.status,
+            side: order.side,
+            price: order.price,
+            quantity: order.quantity,
+            filledQuantity: order.filledQuantity,
+            clOrdId: order.clOrdId,
+          })),
+        }),
+      });
+    } catch {
+      // Journal persistence is best-effort.
+    }
+  }
+
+  function summarizeSubmitMessage(result: BasketTradeResult) {
+    const ok = result.legResults?.filter((leg) => leg.ok).length ?? 0;
+    const total = result.legResults?.length ?? 0;
+    return `Submitted ${ok}/${total} legs`;
+  }
+
+  async function pollFillsAfterSubmit(result: BasketTradeResult) {
+    if (!address) {
+      return;
+    }
+
+    setPollingFills(true);
+    try {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, attempt === 0 ? 800 : 2000);
+        });
+        await refreshAccount();
+      }
+    } finally {
+      setPollingFills(false);
+      try {
+        const ordersResponse = await fetch(`/api/sodex/account/${address}/orders`);
+        const ordersJson = ordersResponse.ok
+          ? await ordersResponse.json()
+          : { orders: [] };
+        await appendJournal(result, ordersJson.orders ?? []);
+      } catch {
+        await appendJournal(result, []);
+      }
+    }
+  }
+
   function handleNotionalChange(nextValue: number) {
     if (tradePlan && nextValue !== basketNotionalUsd) {
       setPendingNotional(nextValue);
@@ -267,13 +364,20 @@ export function SodexTradingPanel({
     }
   }
 
-  async function runWalletSubmit() {
+  async function runWalletSubmit(options?: { failedOnly?: boolean }) {
     if (!address) {
       return;
     }
 
+    const assetsToRetry = options?.failedOnly ? new Set(failedLegAssets) : null;
+    const priorOkLegs = options?.failedOnly
+      ? (tradeResult?.legResults ?? []).filter((leg) => leg.ok)
+      : [];
+
     setLoadingTrade(true);
-    setTradeResult(null);
+    if (!options?.failedOnly) {
+      setTradeResult(null);
+    }
     setSubmittingMessage(undefined);
     setActiveDialog(null);
 
@@ -297,10 +401,16 @@ export function SodexTradingPanel({
       const prepared = tradePlan ?? (await prepareTradePlan(weightedAssets, basketNotionalUsd)).plan;
       setTradePlan(prepared);
 
-      if (prepared.orders.length === 0) {
+      const ordersToSubmit = assetsToRetry
+        ? prepared.orders.filter((order) => assetsToRetry.has(order.asset))
+        : prepared.orders;
+
+      if (ordersToSubmit.length === 0) {
         setTradeResult({
           ok: false,
-          message: "No tradable basket legs are ready for SoDEX submission.",
+          message: options?.failedOnly
+            ? "No failed legs remain to retry."
+            : "No tradable basket legs are ready for SoDEX submission.",
         });
         return;
       }
@@ -339,12 +449,12 @@ export function SodexTradingPanel({
         return;
       }
 
-      const legResults: NonNullable<BasketTradeResult["legResults"]> = [];
-      let submittedOrders = 0;
+      const legResults: NonNullable<BasketTradeResult["legResults"]> = [...priorOkLegs];
+      let submittedOrders = priorOkLegs.length;
 
-      for (const [index, order] of prepared.orders.entries()) {
+      for (const [index, order] of ordersToSubmit.entries()) {
         setSubmittingMessage(
-          `Signing leg ${index + 1} of ${prepared.orders.length}: ${order.displayName ?? order.asset}`,
+          `Signing leg ${index + 1} of ${ordersToSubmit.length}: ${order.displayName ?? order.asset}`,
         );
 
         if (index > 0) {
@@ -382,15 +492,17 @@ export function SodexTradingPanel({
       setSubmittingMessage(undefined);
       const anyOk = legResults.some((leg) => leg.ok);
 
-      setTradeResult({
+      const nextResult: BasketTradeResult = {
         ok: anyOk,
         message: "",
         submittedOrders,
         legResults,
-      });
+      };
+
+      setTradeResult(nextResult);
 
       if (anyOk) {
-        await refreshAccount();
+        await pollFillsAfterSubmit(nextResult);
       }
     } catch (error) {
       setSubmittingMessage(undefined);
@@ -539,13 +651,28 @@ export function SodexTradingPanel({
             >
               Sign & submit
             </Button>
+            {failedLegAssets.size > 0 ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loadingTrade || Boolean(submitDisabledReason)}
+                onClick={() => void runWalletSubmit({ failedOnly: true })}
+              >
+                Retry failed legs ({failedLegAssets.size})
+              </Button>
+            ) : null}
           </div>
 
           {submitDisabledReason ? (
             <p className="text-xs text-muted-foreground">{submitDisabledReason}</p>
           ) : null}
 
-          <BasketTradeStatus result={tradeResult} submittingMessage={submittingMessage} />
+          <BasketTradeStatus
+            result={tradeResult}
+            submittingMessage={submittingMessage}
+            pollingFills={pollingFills}
+            trackedOrders={trackedOrders}
+          />
         </div>
       </div>
 
@@ -597,7 +724,7 @@ export function SodexTradingPanel({
         description={`This places real GTC limit orders on SoDEX testnet using ~$${basketNotionalUsd.toLocaleString()} vUSDC. You will approve ${tradePlan?.orders.length ?? 0} separate wallet signatures.`}
         confirmLabel="Sign & submit"
         loading={loadingTrade}
-        onConfirm={runWalletSubmit}
+        onConfirm={() => void runWalletSubmit()}
       >
         {tradePlan ? (
           <div className="space-y-3 text-xs">

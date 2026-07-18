@@ -40,4 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-/internal-docs
+/data/lifecycle/*.json
+!/data/lifecycle/.gitkeep.json
+/data/trade-journal/

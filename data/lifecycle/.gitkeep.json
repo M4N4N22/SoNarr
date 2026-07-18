@@ -1,0 +1,4 @@
+{
+  "narrativeId": "_seed",
+  "note": "Lifecycle JSON snapshots are written here at runtime (local/demo). Ephemeral hosts may not persist across deploys."
+}

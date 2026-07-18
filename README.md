@@ -67,14 +67,19 @@ Next.js routes
   /api/sodex/trade/basket/submit  Proxies wallet-signed batch order
   /api/ai/narrative-brief         Gemini (evidence-bound)
   /api/ai/execution-brief         Gemini (readiness-bound)
+  /api/ai/decision-assist         Gemini (lifecycle + readiness)
+  /api/lifecycle                  Score snapshots + forward-return validation
+  /api/trade-journal              Post-submit outcome journal
 
 Server libraries
   lib/sosovalue/client.ts         Shared fetch, auth, response normalization
-  lib/sosovalue/enrichment.ts     Klines, pairs, ETF, macro, featured
+  lib/sosovalue/enrichment.ts     Klines (7d/30d stats), pairs, ETF, macro, featured
   lib/sosovalue.ts                Radar + narrative engine
   lib/sodex/                      Market, account, readiness, signing, trading, order-filters
-  lib/sonarr/basket-assets.ts     Narrative basket resolution (filters index/category tokens)
+  lib/sonarr/basket-assets.ts     Evidence-ranked basket extraction + provenance
+  lib/sonarr/lifecycle.ts         Stages, snapshots, forward-return validation
   lib/sonarr/signal-stack.ts      Multi-layer conviction model
+  lib/ai/decision-gemini.ts       Bounded hold/size-down/wait/rebalance assist
   lib/types/data-source.ts        EndpointStatus + live/partial/unavailable
 ```
 
@@ -91,7 +96,7 @@ SoSoValue is the **evidence and liquidity context layer**. SoNarr does not inven
 | Feeds | `GET /news/featured` | Radar research strip |
 | Market | `GET /currencies` | Symbol → currency ID |
 | Market | `GET /currencies/{id}/market-snapshot` | Momentum layer |
-| Market | `GET /currencies/{id}/klines` | Historical trend (~7d) |
+| Market | `GET /currencies/{id}/klines` | Historical trend (7d/30d signed stats) |
 | Market | `GET /currencies/{id}/pairs` | CEX liquidity vs SoDEX route |
 | Sector | `GET /currencies/sector-spotlight` | Sector alignment |
 | Indices | `GET /indices`, `/constituents`, `/market-snapshot` | Index relevance |
@@ -223,7 +228,7 @@ Optional operator-only server submit (not needed for wallet flow):
 
 ## Scope and limits (honest)
 
-- Web2 prototype — no smart contracts, no custody, no persisted user portfolios.
+- Web2 prototype — no smart contracts, no custody. Wave 3 adds lightweight JSON lifecycle/trade-journal persistence for local/demo (ephemeral hosts may not retain files).
 - Research and execution-readiness tooling — **not investment advice**.
 - Testnet liquidity is thin; slippage may read N/A while limit routes remain valid.
 - Mainnet submit requires real spot balance, correct API key registration, and operator judgment.
@@ -233,5 +238,5 @@ Optional operator-only server submit (not needed for wallet flow):
 | Wave | Focus |
 | --- | --- |
 | **1 (done)** | SoSoValue evidence → narrative → index idea → brief → launch kit |
-| **2 (current)** | SoDEX readiness + wallet-signed trading, enrichment APIs, execution brief, trading UI |
-| **3** | Public index pages, persistence, fill tracking, shareable launch assets |
+| **2 (done)** | SoDEX readiness + wallet-signed trading, enrichment APIs, execution brief, trading UI |
+| **3 (current)** | Narrative lifecycle, forward-return validation, deeper klines, asset provenance, fill polling, decision assist |

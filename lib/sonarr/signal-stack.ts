@@ -202,7 +202,8 @@ function buildHistoricalTrendLayer({
     return {
       name: "Historical trend",
       status: failedEndpoint ? "Unavailable" : "Pending verification",
-      description: "Checks whether related assets show a positive 7-day trend from SoSoValue daily klines.",
+      description:
+        "Checks directional 7d/30d returns, volatility, and consistency from SoSoValue daily klines.",
       explanation: failedEndpoint
         ? `${failedEndpoint.name} returned ${failedEndpoint.errorType}.`
         : "Historical kline confirmation is pending for the basket assets resolved through SoSoValue currency IDs.",
@@ -215,28 +216,64 @@ function buildHistoricalTrendLayer({
     };
   }
 
-  const averageTrend =
+  const average7d =
     klineTrends.reduce((sum, trend) => sum + (trend.change7dPct ?? 0), 0) /
     klineTrends.length;
-  const positiveCount = klineTrends.filter(
-    (trend) => (trend.change7dPct ?? 0) > 0,
-  ).length;
-  const score = clampScore(40 + Math.abs(averageTrend) * 2 + positiveCount * 8);
+  const with30d = klineTrends.filter((trend) => trend.change30dPct !== undefined);
+  const average30d =
+    with30d.length > 0
+      ? with30d.reduce((sum, trend) => sum + (trend.change30dPct ?? 0), 0) / with30d.length
+      : undefined;
+  const positiveCount = klineTrends.filter((trend) => (trend.change7dPct ?? 0) > 0).length;
+  const avgConsistency =
+    klineTrends.reduce((sum, trend) => sum + (trend.positiveDayRatio7d ?? 0.5), 0) /
+    klineTrends.length;
+  const avgVol =
+    klineTrends.reduce((sum, trend) => sum + (trend.volatility7dPct ?? 0), 0) /
+    klineTrends.length;
+
+  // Signed direction matters: uptrends raise score, downtrends lower it (no abs bias).
+  const directionComponent = average7d * 2.2;
+  const consistencyComponent = (avgConsistency - 0.5) * 28;
+  const breadthComponent = (positiveCount / klineTrends.length) * 18;
+  const volPenalty = Math.min(12, avgVol * 0.35);
+  const longerHorizonBonus =
+    average30d === undefined ? 0 : Math.max(-8, Math.min(8, average30d * 0.35));
+
+  const score = clampScore(
+    48 + directionComponent + consistencyComponent + breadthComponent + longerHorizonBonus - volPenalty,
+  );
 
   return {
     name: "Historical trend",
     score,
-    description: "Checks whether related assets show a positive 7-day trend from SoSoValue daily klines.",
+    description:
+      "Checks directional 7d/30d returns, volatility, and consistency from SoSoValue daily klines.",
     explanation:
-      "SoNarr confirmed daily kline history for basket assets and measured approximate 7-day price change.",
+      "SoNarr confirmed daily kline history for basket assets and scored signed returns (not absolute moves), consistency, and volatility.",
     evidence: [
       `Resolved ${klineTrends.length} asset kline trends from SoSoValue.`,
-      ...klineTrends.map(
-        (trend) =>
-          `${trend.symbol}: ${
-            trend.change7dPct === undefined ? "trend unavailable" : formatPct(trend.change7dPct)
-          } over ~7 days.`,
-      ),
+      `Basket 7d avg: ${formatPct(average7d)}${
+        average30d === undefined ? "" : ` · 30d avg: ${formatPct(average30d)}`
+      }.`,
+      `Positive 7d legs: ${positiveCount}/${klineTrends.length} · avg consistency ${(avgConsistency * 100).toFixed(0)}% · avg daily vol ${avgVol.toFixed(2)}%.`,
+      ...klineTrends.map((trend) => {
+        const parts = [
+          `${trend.symbol}: 7d ${
+            trend.change7dPct === undefined ? "n/a" : formatPct(trend.change7dPct)
+          }`,
+        ];
+        if (trend.change30dPct !== undefined) {
+          parts.push(`30d ${formatPct(trend.change30dPct)}`);
+        }
+        if (trend.volatility7dPct !== undefined) {
+          parts.push(`vol ${trend.volatility7dPct.toFixed(1)}%`);
+        }
+        if (trend.maxDrawdown7dPct !== undefined) {
+          parts.push(`dd ${trend.maxDrawdown7dPct.toFixed(1)}%`);
+        }
+        return parts.join(" · ");
+      }),
     ],
     sourceLabel: "SoSoValue historical klines",
     dataMode: "Live",

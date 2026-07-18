@@ -68,12 +68,26 @@ export function SoSoValueEnrichmentPanel({
           <section className="rounded-xl border border-border bg-background/60 p-4">
             <DivergingBars
               title="7-day price move"
-              titleHint="Approximate change from daily klines — green up, red down."
+              titleHint="Signed change from daily klines — green up, red down. Hover for vol/drawdown when present."
               items={klineTrends.map((trend) => ({
                 id: trend.symbol,
                 label: trend.symbol,
                 value: trend.change7dPct ?? 0,
-                hint: `${trend.symbol} daily kline trend over ~7 days.`,
+                hint: [
+                  `${trend.symbol} ~7d ${
+                    trend.change7dPct === undefined
+                      ? "n/a"
+                      : `${trend.change7dPct > 0 ? "+" : ""}${trend.change7dPct.toFixed(2)}%`
+                  }`,
+                  trend.change30dPct !== undefined
+                    ? `30d ${trend.change30dPct > 0 ? "+" : ""}${trend.change30dPct.toFixed(2)}%`
+                    : null,
+                  trend.volatility7dPct !== undefined
+                    ? `vol ${trend.volatility7dPct.toFixed(1)}%`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
               }))}
             />
           </section>

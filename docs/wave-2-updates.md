@@ -349,8 +349,11 @@ Build must pass before deploy — App Router pages, route handlers, and wallet c
 
 ## Wave 3 direction
 
+Shipped on branch `wave3` — see [docs/wave-3-updates.md](./wave-3-updates.md).
+
 - Order fill polling and post-submit status UX
 - Retry failed legs without re-signing successful ones
-- Persisted baskets, public index pages, shareable launch assets
+- Lifecycle snapshots + forward-return validation (lightweight JSON persistence)
 - Deeper rebalance triggers from live score deltas
-- Mainnet hardening checklist (monitoring, alerting on endpoint failure rates)
+- Bounded AI decision assist
+- Mainnet hardening checklist (monitoring, alerting on endpoint failure rates) remains ongoing

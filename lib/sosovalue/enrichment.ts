@@ -16,9 +16,24 @@ export type ListedCurrency = {
   name?: string;
 };
 
+export type KlineBar = {
+  close: number;
+  timestamp: number;
+};
+
 export type KlineTrend = {
-  change7dPct?: number;
   symbol: string;
+  /** Signed ~7d return from daily closes (first→last in window). */
+  change7dPct?: number;
+  /** Signed ~30d return when enough bars exist. */
+  change30dPct?: number;
+  /** Stdev of daily returns over the 7d window, in percent. */
+  volatility7dPct?: number;
+  /** Max peak-to-trough drawdown over the 7d window, in percent (negative or zero). */
+  maxDrawdown7dPct?: number;
+  /** Share of positive daily closes in the 7d window (0–1). */
+  positiveDayRatio7d?: number;
+  barCount?: number;
 };
 
 export type IndexMarketSnapshot = {
@@ -186,17 +201,8 @@ export function resolveListedCurrency(
   );
 }
 
-export async function getCurrencyKlineTrend(currency: ListedCurrency) {
-  const response = await requestSoSoValue(
-    `/currencies/${currency.id}/klines?interval=1d&limit=8`,
-    `Currency Klines: ${currency.symbol}`,
-  );
-
-  if (!response.ok) {
-    return { data: undefined, endpoints: [response.status] };
-  }
-
-  const list = responseList(response.data)
+function parseKlineBars(payload: unknown): KlineBar[] {
+  return responseList(payload)
     .map((item) => {
       if (typeof item !== "object" || item === null) {
         return undefined;
@@ -212,42 +218,178 @@ export async function getCurrencyKlineTrend(currency: ListedCurrency) {
 
       return { close, timestamp };
     })
-    .filter((item): item is { close: number; timestamp: number } => Boolean(item))
+    .filter((item): item is KlineBar => Boolean(item))
     .sort((a, b) => a.timestamp - b.timestamp);
+}
 
-  if (list.length < 2) {
+function windowReturnPct(bars: KlineBar[], lookbackBars: number): number | undefined {
+  if (bars.length < 2) {
+    return undefined;
+  }
+
+  const slice = bars.slice(-Math.min(lookbackBars, bars.length));
+  const first = slice[0]?.close;
+  const last = slice[slice.length - 1]?.close;
+
+  if (!first || !last) {
+    return undefined;
+  }
+
+  return ((last - first) / first) * 100;
+}
+
+function dailyReturnStats(bars: KlineBar[]) {
+  if (bars.length < 3) {
     return {
-      data: undefined,
-      endpoints: [{ ...response.status, itemCount: list.length }],
+      volatilityPct: undefined as number | undefined,
+      maxDrawdownPct: undefined as number | undefined,
+      positiveDayRatio: undefined as number | undefined,
     };
   }
 
-  const first = list[0]?.close;
-  const last = list[list.length - 1]?.close;
-
-  if (!first || !last) {
-    return { data: undefined, endpoints: [response.status] };
+  const returns: number[] = [];
+  for (let i = 1; i < bars.length; i += 1) {
+    const prev = bars[i - 1]?.close;
+    const curr = bars[i]?.close;
+    if (!prev || !curr) {
+      continue;
+    }
+    returns.push(((curr - prev) / prev) * 100);
   }
 
-  const trend: KlineTrend = {
-    symbol: currency.symbol,
-    change7dPct: ((last - first) / first) * 100,
-  };
+  if (returns.length === 0) {
+    return {
+      volatilityPct: undefined,
+      maxDrawdownPct: undefined,
+      positiveDayRatio: undefined,
+    };
+  }
+
+  const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+  const variance =
+    returns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / returns.length;
+  const volatilityPct = Math.sqrt(variance);
+
+  let peak = bars[0]!.close;
+  let maxDrawdownPct = 0;
+  for (const bar of bars) {
+    if (bar.close > peak) {
+      peak = bar.close;
+    }
+    const drawdown = ((bar.close - peak) / peak) * 100;
+    if (drawdown < maxDrawdownPct) {
+      maxDrawdownPct = drawdown;
+    }
+  }
+
+  const positiveDayRatio = returns.filter((value) => value > 0).length / returns.length;
+
+  return { volatilityPct, maxDrawdownPct, positiveDayRatio };
+}
+
+export function buildKlineTrendFromBars(symbol: string, bars: KlineBar[]): KlineTrend | undefined {
+  if (bars.length < 2) {
+    return undefined;
+  }
+
+  const window7 = bars.slice(-Math.min(8, bars.length));
+  const stats7 = dailyReturnStats(window7);
 
   return {
-    data: trend,
-    endpoints: [{ ...response.status, itemCount: list.length }],
+    symbol,
+    change7dPct: windowReturnPct(bars, 8),
+    change30dPct: bars.length >= 10 ? windowReturnPct(bars, 31) : undefined,
+    volatility7dPct: stats7.volatilityPct,
+    maxDrawdown7dPct: stats7.maxDrawdownPct,
+    positiveDayRatio7d: stats7.positiveDayRatio,
+    barCount: bars.length,
   };
 }
 
-export async function getKlineTrendsForSymbols(symbols: string[]) {
+/** Close at or just after `fromMs`, and close ~`horizonDays` later. */
+export function forwardReturnFromBars(
+  bars: KlineBar[],
+  fromMs: number,
+  horizonDays: number,
+): number | undefined {
+  if (bars.length < 2) {
+    return undefined;
+  }
+
+  let startIndex = bars.findIndex((bar) => bar.timestamp >= fromMs);
+  if (startIndex < 0) {
+    startIndex = bars.length - 1;
+  }
+
+  const start = bars[startIndex];
+  if (!start?.close) {
+    return undefined;
+  }
+
+  const targetMs = start.timestamp + horizonDays * 24 * 60 * 60 * 1000;
+  let endIndex = bars.findIndex((bar, index) => index > startIndex && bar.timestamp >= targetMs);
+  if (endIndex < 0) {
+    endIndex = bars.length - 1;
+  }
+
+  if (endIndex <= startIndex) {
+    return undefined;
+  }
+
+  const end = bars[endIndex];
+  if (!end?.close) {
+    return undefined;
+  }
+
+  return ((end.close - start.close) / start.close) * 100;
+}
+
+export async function getCurrencyKlineBars(
+  currency: ListedCurrency,
+  options?: { interval?: "1d" | "1h"; limit?: number },
+) {
+  const interval = options?.interval ?? "1d";
+  const limit = options?.limit ?? 31;
+  const response = await requestSoSoValue(
+    `/currencies/${currency.id}/klines?interval=${interval}&limit=${limit}`,
+    `Currency Klines: ${currency.symbol}`,
+  );
+
+  if (!response.ok) {
+    return { data: undefined as KlineBar[] | undefined, endpoints: [response.status] };
+  }
+
+  const bars = parseKlineBars(response.data);
+
+  return {
+    data: bars.length >= 2 ? bars : undefined,
+    endpoints: [{ ...response.status, itemCount: bars.length }],
+  };
+}
+
+export async function getCurrencyKlineTrend(currency: ListedCurrency) {
+  const result = await getCurrencyKlineBars(currency, { interval: "1d", limit: 31 });
+
+  if (!result.data) {
+    return { data: undefined as KlineTrend | undefined, endpoints: result.endpoints };
+  }
+
+  const trend = buildKlineTrendFromBars(currency.symbol, result.data);
+
+  return {
+    data: trend,
+    endpoints: result.endpoints,
+  };
+}
+
+export async function getKlineTrendsForSymbols(symbols: string[], maxSymbols = 5) {
   const listed = await getListedCurrencies();
   const endpoints: EndpointStatus[] = [...listed.endpoints];
   const trends: KlineTrend[] = [];
 
   const uniqueSymbols = Array.from(new Set(symbols.map((symbol) => symbol.toUpperCase()))).slice(
     0,
-    3,
+    maxSymbols,
   );
 
   for (const symbol of uniqueSymbols) {
@@ -266,6 +408,32 @@ export async function getKlineTrendsForSymbols(symbols: string[]) {
   }
 
   return { data: trends, endpoints };
+}
+
+export async function getKlineBarsForSymbols(symbols: string[], maxSymbols = 5) {
+  const listed = await getListedCurrencies();
+  const endpoints: EndpointStatus[] = [...listed.endpoints];
+  const bySymbol: Record<string, KlineBar[]> = {};
+
+  const uniqueSymbols = Array.from(new Set(symbols.map((symbol) => symbol.toUpperCase()))).slice(
+    0,
+    maxSymbols,
+  );
+
+  for (const symbol of uniqueSymbols) {
+    const currency = resolveListedCurrency(symbol, listed.data);
+    if (!currency) {
+      continue;
+    }
+
+    const result = await getCurrencyKlineBars(currency, { interval: "1d", limit: 60 });
+    endpoints.push(...result.endpoints);
+    if (result.data) {
+      bySymbol[symbol] = result.data;
+    }
+  }
+
+  return { data: bySymbol, endpoints };
 }
 
 export async function getIndexMarketSnapshots(indexTickers: string[]) {
