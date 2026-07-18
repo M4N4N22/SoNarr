@@ -4,7 +4,7 @@ import {
   type EndpointStatus,
 } from "@/lib/types/data-source";
 
-import { getSodexBaseUrl } from "./config";
+import { getDefaultSodexNetwork, getSodexBaseUrl, type SodexNetwork } from "./config";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -42,10 +42,11 @@ export async function requestSodexGet<T>(
   name: string,
   parse: (payload: unknown) => T | undefined,
   revalidate = 30,
+  network: SodexNetwork = getDefaultSodexNetwork(),
 ): Promise<EndpointResult<T>> {
   const startedAt = Date.now();
   const endpoint = `GET ${path.split("?")[0]}`;
-  const url = `${getSodexBaseUrl()}${path}`;
+  const url = `${getSodexBaseUrl(network)}${path}`;
 
   try {
     const response = await fetch(url, {
@@ -145,19 +146,21 @@ export async function requestSodexGet<T>(
   }
 }
 
-export async function requestSodexPost<T>(
+export async function requestSodexWrite<T>(
+  method: "POST" | "DELETE",
   path: string,
   name: string,
   body: string,
   headers: Record<string, string>,
+  network: SodexNetwork = getDefaultSodexNetwork(),
 ): Promise<{ ok: true; data: T } | { ok: false; status: EndpointStatus; error?: string; response?: unknown }> {
   const startedAt = Date.now();
-  const endpoint = `POST ${path.split("?")[0]}`;
-  const url = `${getSodexBaseUrl()}${path}`;
+  const endpoint = `${method} ${path.split("?")[0]}`;
+  const url = `${getSodexBaseUrl(network)}${path}`;
 
   try {
     const response = await fetch(url, {
-      method: "POST",
+      method,
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
@@ -183,7 +186,7 @@ export async function requestSodexPost<T>(
           message:
             asString(isRecord(payload) ? payload.error : undefined) ??
             asString(isRecord(payload) ? payload.message : undefined) ??
-            `SoDEX trade request failed (${response.status}).`,
+            `SoDEX ${method} request failed (${response.status}).`,
           durationMs,
           itemCount: 0,
         },
@@ -204,10 +207,30 @@ export async function requestSodexPost<T>(
         endpoint,
         ok: false,
         errorType: "network_error",
-        message: "Network error while submitting to SoDEX.",
+        message: `Network error while contacting SoDEX (${method}).`,
         durationMs: Date.now() - startedAt,
         itemCount: 0,
       },
     };
   }
+}
+
+export async function requestSodexPost<T>(
+  path: string,
+  name: string,
+  body: string,
+  headers: Record<string, string>,
+  network?: SodexNetwork,
+) {
+  return requestSodexWrite<T>("POST", path, name, body, headers, network);
+}
+
+export async function requestSodexDelete<T>(
+  path: string,
+  name: string,
+  body: string,
+  headers: Record<string, string>,
+  network?: SodexNetwork,
+) {
+  return requestSodexWrite<T>("DELETE", path, name, body, headers, network);
 }

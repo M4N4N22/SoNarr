@@ -1,14 +1,18 @@
 import type { Hex } from "viem";
 
-import { asNumber, asString, isRecord, requestSodexPost } from "./client";
-import { getSodexChainId, getSodexTradingCredentials } from "./config";
+import { asNumber, asString, isRecord, requestSodexDelete, requestSodexPost } from "./client";
+import { getDefaultSodexNetwork, getSodexChainId, getSodexTradingCredentials, type SodexNetwork } from "./config";
 import type { BasketExecutionReadiness, BasketLegReadiness } from "./readiness";
 import {
+  buildBatchCancelOrderBody,
   buildBatchNewOrderBody,
+  getBatchCancelOrderPayloadHash,
+  getSodexExchangeTypedData,
   signBatchNewOrderRequest,
   SODEX_ORDER_SIDE,
   SODEX_ORDER_TYPE,
   SODEX_TIME_IN_FORCE,
+  type BatchCancelOrderRequest,
   type BatchNewOrderItem,
   type BatchNewOrderRequest,
 } from "./signing";
@@ -55,7 +59,7 @@ export type BasketTradeResult = {
 export async function buildBasketTradePlan(
   executionReadiness: BasketExecutionReadiness,
 ): Promise<BasketTradePlan> {
-  const symbolsResult = await getSpotSymbols();
+  const symbolsResult = await getSpotSymbols(false, executionReadiness.network);
   const symbolByName = new Map(symbolsResult.data.map((symbol) => [symbol.name, symbol]));
   const orders: PreparedBasketOrder[] = [];
   const skipped: Array<{ asset: string; reason: string }> = [];
@@ -203,6 +207,7 @@ export async function submitSignedBasketTrade(
     nonce: bigint;
     signature: Hex;
   },
+  network: SodexNetwork = getDefaultSodexNetwork(),
 ): Promise<BasketTradeResult> {
   if (request.orders.length === 0) {
     return {
@@ -212,12 +217,18 @@ export async function submitSignedBasketTrade(
   }
 
   const body = buildBatchNewOrderBody(request);
-  const result = await requestSodexPost<unknown>("/trade/orders/batch", "SoDEX Batch New Order", body, {
-    "X-API-Key": headers.apiKeyName,
-    "X-API-Sign": headers.signature,
-    "X-API-Nonce": headers.nonce.toString(),
-    "X-API-Chain": getSodexChainId().toString(),
-  });
+  const result = await requestSodexPost<unknown>(
+    "/trade/orders/batch",
+    "SoDEX Batch New Order",
+    body,
+    {
+      "X-API-Key": headers.apiKeyName,
+      "X-API-Sign": headers.signature,
+      "X-API-Nonce": headers.nonce.toString(),
+      "X-API-Chain": getSodexChainId(network).toString(),
+    },
+    network,
+  );
 
   if (!result.ok) {
     const legResults = parseBatchLegResults(request, plan, result.response);
@@ -313,6 +324,80 @@ export async function submitBasketTradePlan(
     nonce,
     signature,
   });
+}
+
+export function createCancelClientOrderId(asset: string, index: number) {
+  return createClientOrderId(`CX${asset}`.slice(0, 8), index);
+}
+
+export function planToBatchCancelRequest(
+  cancels: Array<{
+    symbolID: number;
+    orderID?: number;
+    origClOrdID?: string;
+    asset?: string;
+  }>,
+  accountId: number,
+): BatchCancelOrderRequest {
+  return {
+    accountID: accountId,
+    cancels: cancels.map((item, index) => ({
+      symbolID: item.symbolID,
+      clOrdID: createCancelClientOrderId(item.asset ?? "CX", index),
+      orderID: item.orderID,
+      origClOrdID: item.origClOrdID,
+    })),
+  };
+}
+
+export function getBatchCancelTypedData(
+  request: BatchCancelOrderRequest,
+  nonce: bigint,
+  chainId: number,
+) {
+  return getSodexExchangeTypedData(getBatchCancelOrderPayloadHash(request), nonce, chainId);
+}
+
+export async function submitSignedBatchCancel(
+  request: BatchCancelOrderRequest,
+  headers: {
+    apiKeyName: string;
+    nonce: bigint;
+    signature: Hex;
+  },
+  network: SodexNetwork = getDefaultSodexNetwork(),
+): Promise<{ ok: boolean; message: string; response?: unknown }> {
+  if (request.cancels.length === 0) {
+    return { ok: false, message: "No orders selected to cancel." };
+  }
+
+  const body = buildBatchCancelOrderBody(request);
+  const result = await requestSodexDelete<unknown>(
+    "/trade/orders/batch",
+    "SoDEX Batch Cancel Order",
+    body,
+    {
+      "X-API-Key": headers.apiKeyName,
+      "X-API-Sign": headers.signature,
+      "X-API-Nonce": headers.nonce.toString(),
+      "X-API-Chain": getSodexChainId(network).toString(),
+    },
+    network,
+  );
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      message: result.status.message ?? "Cancel request failed.",
+      response: result.response,
+    };
+  }
+
+  return {
+    ok: true,
+    message: `Cancel submitted for ${request.cancels.length} order${request.cancels.length === 1 ? "" : "s"}.`,
+    response: result.data,
+  };
 }
 
 export function summarizeLegForTrade(leg: BasketLegReadiness) {

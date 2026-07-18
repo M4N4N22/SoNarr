@@ -16,6 +16,9 @@ Wave 3 proves that SoNarr’s narrative lifecycle improves decisions over time: 
 | **Retry failed legs** | Re-sign only failed legs; keep successful accepts |
 | **Trade journal** | `/api/trade-journal` appends outcomes for feedback |
 | **Decision assist** | Bounded Gemini/fallback: hold / size-down / wait / rebalance from lifecycle + readiness |
+| **Network switch** | Launch UI Testnet/Mainnet toggle with mainnet confirm; cookie + optional `SODEX_NETWORK_LOCK` |
+| **Durable store** | Upstash Redis REST when configured; filesystem fallback + browser localStorage mirror |
+| **Cancel open orders** | Wallet-signed batch cancel from Launch when open orders are visible |
 
 ## Architecture add-ons
 
@@ -32,10 +35,11 @@ Launch submit
 
 ## Honesty notes
 
-- Lifecycle/trade-journal JSON persistence is local/demo-friendly; ephemeral hosts (e.g. Vercel) may not keep files across instances.
+- Lifecycle/trade-journal persistence uses Upstash when `UPSTASH_REDIS_REST_*` is set; otherwise local filesystem (ephemeral on many hosts) plus a browser localStorage mirror.
 - Forward-return samples strengthen as snapshots accumulate; thin history is labeled partial.
 - Decision assist never invents fills or prices — same evidence-bound rule as Wave 2 briefs.
 - Still research tooling, not financial advice; no auto-trading without wallet confirmation.
+- Keep public demos on testnet; use a dedicated deploy + funded wallet before mainnet.
 
 ## Demo path
 

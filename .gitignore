@@ -45,3 +45,4 @@ next-env.d.ts
 /data/lifecycle/*.json
 !/data/lifecycle/.gitkeep.json
 /data/trade-journal/
+/data/kv/

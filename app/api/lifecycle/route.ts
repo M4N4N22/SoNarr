@@ -1,7 +1,9 @@
 import {
   getOrRefreshNarrativeLifecycle,
+  mergeClientLifecycleSnapshots,
   readLifecycleState,
   type AppendSnapshotInput,
+  type LifecycleSnapshot,
 } from "@/lib/sonarr/lifecycle";
 
 export const runtime = "nodejs";
@@ -94,6 +96,21 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  if (isRecord(body) && body.mergeClient === true && typeof body.narrativeId === "string") {
+    const snapshots = Array.isArray(body.snapshots)
+      ? (body.snapshots as LifecycleSnapshot[])
+      : [];
+    const merged = await mergeClientLifecycleSnapshots(body.narrativeId, snapshots);
+    return Response.json(
+      merged ?? {
+        narrativeId: body.narrativeId,
+        stage: "Watching",
+        snapshots: [],
+        updatedAt: new Date().toISOString(),
+      },
+    );
   }
 
   const input = parseAppendInput(body);

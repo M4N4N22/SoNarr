@@ -31,7 +31,9 @@ export function BasketNotionalControl({
       <div>
         <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Basket size</p>
         <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground/80">
-          Total vUSDC notional — split across legs by index weights
+          Total {network === "mainnet" ? "USDC" : "vUSDC"} notional — split across legs by index
+          weights
+          {network === "mainnet" ? " · fee buffer reserved from spot balance" : ""}
         </p>
         <input
           type="number"
@@ -43,8 +45,11 @@ export function BasketNotionalControl({
           className={inputClassName}
         />
         <p className="mt-1 text-[11px] text-muted-foreground">
-          Max {limits.max} USDC
+          Max {limits.max.toLocaleString()} {network === "mainnet" ? "USDC" : "vUSDC"}
           {network === "testnet" ? ` · faucet ${SODEX_TESTNET_FAUCET_USDC}` : ""}
+          {network === "mainnet" && limits.feeBufferUsd > 0
+            ? ` · keep ~$${limits.feeBufferUsd} fee buffer`
+            : ""}
           {loading ? " · updating" : ""}
         </p>
       </div>

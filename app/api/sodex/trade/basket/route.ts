@@ -3,15 +3,16 @@ import { NextResponse } from "next/server";
 import {
   buildBasketTradePlan,
   getBasketExecutionReadiness,
-  getSodexNetwork,
   submitBasketTradePlan,
 } from "@/lib/sodex";
 import { resolveBasketNotionalUsd } from "@/lib/sodex/basket-notional";
+import { resolveSodexNetwork } from "@/lib/sodex/network-preference";
 
 type TradeBody = {
   assets?: Array<{ asset: string; weight: number }>;
   dryRun?: boolean;
   totalNotionalUsd?: number;
+  network?: string;
 };
 
 function parseAssets(raw: unknown) {
@@ -56,11 +57,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const totalNotionalUsd = resolveBasketNotionalUsd(
-    body.totalNotionalUsd,
-    getSodexNetwork(),
-  );
-  const readiness = await getBasketExecutionReadiness(assets, totalNotionalUsd);
+  const network = resolveSodexNetwork(body.network);
+  const totalNotionalUsd = resolveBasketNotionalUsd(body.totalNotionalUsd, network);
+  const readiness = await getBasketExecutionReadiness(assets, totalNotionalUsd, network);
   const plan = await buildBasketTradePlan(readiness);
 
   if (body.dryRun !== true) {

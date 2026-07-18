@@ -15,8 +15,10 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   findWalletApiKeyName,
   formatSodexSignature,
+  getBatchCancelTypedData,
   getBatchNewOrderPayloadHash,
   getSodexExchangeTypedData,
+  planToBatchCancelRequest,
   planToBatchNewOrderRequest,
   singleOrderPlan,
   SODEX_CHAIN_IDS,
@@ -36,7 +38,7 @@ type SodexTradingPanelProps = {
   narrativeTitle: string;
   narrativeId?: string;
   basketNotionalUsd: number;
-  onBasketNotionalChange: (value: number) => void;
+  onBasketNotionalChange: (value: number, availableUsdc?: number) => void;
   loadingReadiness?: boolean;
 };
 
@@ -53,12 +55,18 @@ type AccountSnapshot = {
     remainingQuantity?: number;
     status?: string;
     clOrdId?: string;
+    orderId?: number;
+    symbolId?: number;
   }>;
 };
 
-type DialogKind = "connect" | "disconnect" | "notional" | "submit" | null;
+type DialogKind = "connect" | "disconnect" | "notional" | "submit" | "cancel" | null;
 
-async function prepareTradePlan(weightedAssets: WeightedAsset[], totalNotionalUsd: number) {
+async function prepareTradePlan(
+  weightedAssets: WeightedAsset[],
+  totalNotionalUsd: number,
+  network: BasketExecutionReadiness["network"],
+) {
   const response = await fetch("/api/sodex/trade/basket", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -66,6 +74,7 @@ async function prepareTradePlan(weightedAssets: WeightedAsset[], totalNotionalUs
       assets: weightedAssets,
       totalNotionalUsd,
       dryRun: true,
+      network,
     }),
   });
 
@@ -88,6 +97,7 @@ async function submitSignedPlanLeg(
   walletClient: Awaited<ReturnType<typeof getWalletClient>>,
   address: `0x${string}`,
   chainId: number,
+  network: BasketExecutionReadiness["network"],
 ) {
   const plan = singleOrderPlan(order);
   const batchRequest = planToBatchNewOrderRequest(plan, accountId);
@@ -108,6 +118,7 @@ async function submitSignedPlanLeg(
       apiKeyName,
       nonce: nonce.toString(),
       signature,
+      network,
     }),
   });
 
@@ -275,6 +286,7 @@ export function SodexTradingPanel({
           narrativeId: narrativeId ?? narrativeTitle.toLowerCase().replace(/\s+/g, "-"),
           narrativeTitle,
           wallet: address,
+          network: executionReadiness.network,
           submittedLegs: result.legResults?.length ?? 0,
           successLegs: result.legResults?.filter((leg) => leg.ok).length ?? 0,
           message: result.message || summarizeSubmitMessage(result),
@@ -334,7 +346,7 @@ export function SodexTradingPanel({
       return;
     }
 
-    onBasketNotionalChange(nextValue);
+    onBasketNotionalChange(nextValue, usdcBalance?.available ?? usdcBalance?.total);
   }
 
   function confirmNotionalChange() {
@@ -342,7 +354,7 @@ export function SodexTradingPanel({
       return;
     }
 
-    onBasketNotionalChange(pendingNotional);
+    onBasketNotionalChange(pendingNotional, usdcBalance?.available ?? usdcBalance?.total);
     setPendingNotional(null);
     setActiveDialog(null);
   }
@@ -354,7 +366,11 @@ export function SodexTradingPanel({
     setPreviewError(null);
 
     try {
-      const prepared = await prepareTradePlan(weightedAssets, basketNotionalUsd);
+      const prepared = await prepareTradePlan(
+        weightedAssets,
+        basketNotionalUsd,
+        executionReadiness.network,
+      );
       setTradePlan(prepared.plan);
       setTradeResult(null);
     } catch (error) {
@@ -398,7 +414,10 @@ export function SodexTradingPanel({
         return;
       }
 
-      const prepared = tradePlan ?? (await prepareTradePlan(weightedAssets, basketNotionalUsd)).plan;
+      const prepared =
+        tradePlan ??
+        (await prepareTradePlan(weightedAssets, basketNotionalUsd, executionReadiness.network))
+          .plan;
       setTradePlan(prepared);
 
       const ordersToSubmit = assetsToRetry
@@ -470,6 +489,7 @@ export function SodexTradingPanel({
           walletClient,
           address,
           chainId,
+          executionReadiness.network,
         );
 
         if (legResult.legResults?.length) {
@@ -528,7 +548,11 @@ export function SodexTradingPanel({
     setPreviewError(null);
 
     try {
-      const prepared = await prepareTradePlan(weightedAssets, basketNotionalUsd);
+      const prepared = await prepareTradePlan(
+        weightedAssets,
+        basketNotionalUsd,
+        executionReadiness.network,
+      );
       setTradePlan(prepared.plan);
 
       if (prepared.plan.orders.length === 0) {
@@ -539,6 +563,128 @@ export function SodexTradingPanel({
       setActiveDialog("submit");
     } catch (error) {
       setPreviewError(error instanceof Error ? error.message : "Could not prepare orders.");
+    } finally {
+      setLoadingTrade(false);
+    }
+  }
+
+  const cancelableOrders = useMemo(() => {
+    return (accountSnapshot?.orders ?? []).filter((order) => {
+      const status = (order.status ?? "").toLowerCase();
+      const openish =
+        !status ||
+        status.includes("new") ||
+        status.includes("open") ||
+        status.includes("live") ||
+        status.includes("partial");
+      return openish && (typeof order.orderId === "number" || Boolean(order.clOrdId));
+    });
+  }, [accountSnapshot?.orders]);
+
+  async function runCancelOpenOrders() {
+    if (!address || cancelableOrders.length === 0) {
+      return;
+    }
+
+    setLoadingTrade(true);
+    setActiveDialog(null);
+    setSubmittingMessage("Preparing cancel signatures…");
+
+    try {
+      await ensureSodexChain(config, { chainId, account: address });
+      const walletClient = await getWalletClient(config, { account: address, chainId });
+      if (!walletClient) {
+        setPreviewError("Could not access wallet for cancel signing.");
+        return;
+      }
+
+      let accountId = accountSnapshot?.accountId;
+      let apiKeyName = accountSnapshot?.apiKeyName;
+      if (!accountId || !apiKeyName) {
+        await refreshAccount();
+        accountId = accountSnapshot?.accountId;
+        apiKeyName = accountSnapshot?.apiKeyName;
+      }
+
+      // Re-fetch credentials after refresh
+      const [stateResponse, apiKeysResponse] = await Promise.all([
+        fetch(`/api/sodex/account/${address}/state`),
+        fetch(`/api/sodex/account/${address}/api-keys`),
+      ]);
+      const stateJson = stateResponse.ok ? await stateResponse.json() : {};
+      const apiKeysJson = apiKeysResponse.ok ? await apiKeysResponse.json() : { apiKeys: [] };
+      accountId = stateJson.state?.accountId ?? accountId;
+      apiKeyName = findWalletApiKeyName(address, apiKeysJson.apiKeys ?? []) ?? apiKeyName;
+
+      if (!accountId || !apiKeyName) {
+        setPreviewError("Missing SoDEX account or API key for cancel.");
+        return;
+      }
+
+      // Resolve symbolIDs from current readiness legs when order.symbolId missing
+      const symbolIdByName = new Map(
+        executionReadiness.legs
+          .filter((leg) => leg.sodexSymbol && leg.symbolId)
+          .map((leg) => [leg.sodexSymbol!, leg.symbolId!]),
+      );
+
+      const cancels = cancelableOrders
+        .map((order) => {
+          const symbolID =
+            order.symbolId ??
+            (order.symbol ? symbolIdByName.get(order.symbol) : undefined);
+          if (!symbolID) {
+            return undefined;
+          }
+          return {
+            symbolID,
+            orderID: order.orderId,
+            origClOrdID: order.clOrdId,
+            asset: order.symbol?.split("/")[0] ?? order.symbol,
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+      if (cancels.length === 0) {
+        setPreviewError(
+          "Open orders are missing symbol IDs — refresh account after submit so cancels can resolve markets.",
+        );
+        return;
+      }
+
+      const batchRequest = planToBatchCancelRequest(cancels, accountId);
+      const nonce = BigInt(Date.now());
+      const typedData = getBatchCancelTypedData(batchRequest, nonce, chainId);
+      setSubmittingMessage(`Sign cancel for ${cancels.length} order(s)…`);
+      const walletSignature = await walletClient.signTypedData({
+        account: address,
+        ...typedData,
+      });
+      const signature = formatSodexSignature(walletSignature);
+
+      const response = await fetch("/api/sodex/trade/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId,
+          apiKeyName,
+          nonce: nonce.toString(),
+          signature,
+          network: executionReadiness.network,
+          cancels,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.result?.ok) {
+        setPreviewError(payload.result?.message ?? payload.error ?? "Cancel failed.");
+        return;
+      }
+
+      setSubmittingMessage(undefined);
+      await refreshAccount();
+    } catch (error) {
+      setSubmittingMessage(undefined);
+      setPreviewError(error instanceof Error ? error.message : "Cancel failed.");
     } finally {
       setLoadingTrade(false);
     }
@@ -555,7 +701,8 @@ export function SodexTradingPanel({
             <Badge variant="muted">Wallet sign</Badge>
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            Preview limit orders, confirm in a dialog, then sign each leg on ValueChain Testnet.
+            Preview limit orders, confirm in a dialog, then sign each leg on{" "}
+            {executionReadiness.network === "mainnet" ? "ValueChain mainnet" : "ValueChain testnet"}.
             SoNarr never holds your keys.
           </p>
         </div>
@@ -661,6 +808,16 @@ export function SodexTradingPanel({
                 Retry failed legs ({failedLegAssets.size})
               </Button>
             ) : null}
+            {cancelableOrders.length > 0 ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loadingTrade || !isConnected}
+                onClick={() => setActiveDialog("cancel")}
+              >
+                Cancel open ({cancelableOrders.length})
+              </Button>
+            ) : null}
           </div>
 
           {submitDisabledReason ? (
@@ -720,9 +877,20 @@ export function SodexTradingPanel({
       <ConfirmDialog
         open={activeDialog === "submit"}
         onOpenChange={(open) => setActiveDialog(open ? "submit" : null)}
-        title="Submit live limit buys to SoDEX?"
-        description={`This places real GTC limit orders on SoDEX testnet using ~$${basketNotionalUsd.toLocaleString()} vUSDC. You will approve ${tradePlan?.orders.length ?? 0} separate wallet signatures.`}
-        confirmLabel="Sign & submit"
+        title={
+          executionReadiness.network === "mainnet"
+            ? "Submit live limit buys on SoDEX mainnet?"
+            : "Submit live limit buys to SoDEX?"
+        }
+        description={
+          executionReadiness.network === "mainnet"
+            ? `This places real GTC limit orders on SoDEX mainnet using ~$${basketNotionalUsd.toLocaleString()} USDC. You will approve ${tradePlan?.orders.length ?? 0} separate wallet signatures. Double-check legs and size before continuing.`
+            : `This places real GTC limit orders on SoDEX testnet using ~$${basketNotionalUsd.toLocaleString()} vUSDC. You will approve ${tradePlan?.orders.length ?? 0} separate wallet signatures.`
+        }
+        confirmLabel={
+          executionReadiness.network === "mainnet" ? "Sign mainnet orders" : "Sign & submit"
+        }
+        confirmVariant={executionReadiness.network === "mainnet" ? "destructive" : "default"}
         loading={loadingTrade}
         onConfirm={() => void runWalletSubmit()}
       >
@@ -747,6 +915,17 @@ export function SodexTradingPanel({
           </div>
         ) : null}
       </ConfirmDialog>
+
+      <ConfirmDialog
+        open={activeDialog === "cancel"}
+        onOpenChange={(open) => setActiveDialog(open ? "cancel" : null)}
+        title="Cancel open SoDEX orders?"
+        description={`This signs a batch cancel for ${cancelableOrders.length} open order(s) on ${executionReadiness.network}. Filled size is kept; only residual open quantity is canceled.`}
+        confirmLabel="Sign cancels"
+        confirmVariant="destructive"
+        loading={loadingTrade}
+        onConfirm={() => void runCancelOpenOrders()}
+      />
     </>
   );
 }

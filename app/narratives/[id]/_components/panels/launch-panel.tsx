@@ -6,26 +6,35 @@ import { AiExecutionBrief } from "@/components/sonarr/ai-execution-brief";
 import { AiNarrativeBrief } from "@/components/sonarr/ai-narrative-brief";
 import { ExecutionPreviewSection } from "@/components/sonarr/execution-preview-section";
 import { NarrativeLaunchRoom } from "@/components/sonarr/narrative-launch-room";
+import { SodexNetworkSwitch, usePersistedSodexNetwork } from "@/components/sonarr/sodex-network-switch";
 import { SodexTradingPanel } from "@/components/sonarr/sodex-trading-panel";
 import { PageSection } from "@/components/layout/page-section";
 import { useBasketExecutionReadiness } from "@/hooks/use-basket-execution-readiness";
 import type { NarrativeWorkspaceProps } from "../types";
 
 export function LaunchPanel({ data }: { data: NarrativeWorkspaceProps }) {
+  const { network, setNetwork, locked } = usePersistedSodexNetwork(data.executionReadiness.network);
   const {
     basketNotionalUsd,
     setBasketNotionalUsd,
     executionReadiness,
     loadingReadiness,
-  } = useBasketExecutionReadiness(data.weightedAssets, data.executionReadiness);
+  } = useBasketExecutionReadiness(data.weightedAssets, data.executionReadiness, network);
 
   return (
     <div className="space-y-3">
       <PageSection
         icon={Gauge}
         title="Execution readiness"
-        description="Live SoDEX orderbook checks plus SoSoValue CEX pair context. Read-only — no orders until you connect a wallet below."
+        description="Live SoDEX orderbook checks plus SoSoValue CEX pair context. Switch network carefully — mainnet is real capital."
       >
+        <div className="mb-3">
+          <SodexNetworkSwitch
+            network={network}
+            onNetworkChange={setNetwork}
+            locked={locked}
+          />
+        </div>
         <ExecutionPreviewSection
           executionReadiness={executionReadiness}
           liquidityContext={data.liquidityContext}

@@ -1,6 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
-
+import { kvGetJson, kvSetJson } from "@/lib/persistence/kv-store";
 import {
   forwardReturnFromBars,
   getKlineBarsForSymbols,
@@ -51,9 +49,9 @@ export type NarrativeLifecycleState = {
   stage: LifecycleStage;
   snapshots: LifecycleSnapshot[];
   validation?: LifecycleValidation;
+  persistenceBackend?: "upstash" | "filesystem";
 };
 
-const DATA_DIR = path.join(process.cwd(), "data", "lifecycle");
 const HIGH_CONVICTION_THRESHOLD = 70;
 const LOW_CONVICTION_THRESHOLD = 50;
 const REBALANCE_DELTA_PCT = 20;
@@ -103,33 +101,24 @@ export function classifyLifecycleStage(
   return "Watching";
 }
 
-function storePath(narrativeId: string) {
+function lifecycleKey(narrativeId: string) {
   const safe = narrativeId.replace(/[^a-z0-9-_]/gi, "").toLowerCase() || "unknown";
-  return path.join(DATA_DIR, `${safe}.json`);
-}
-
-async function ensureDataDir() {
-  await mkdir(DATA_DIR, { recursive: true });
+  return `sonarr:lifecycle:${safe}`;
 }
 
 export async function readLifecycleState(
   narrativeId: string,
 ): Promise<NarrativeLifecycleState | undefined> {
-  try {
-    const raw = await readFile(storePath(narrativeId), "utf8");
-    const parsed = JSON.parse(raw) as NarrativeLifecycleState;
-    if (!parsed || parsed.narrativeId !== narrativeId || !Array.isArray(parsed.snapshots)) {
-      return undefined;
-    }
-    return parsed;
-  } catch {
+  const parsed = await kvGetJson<NarrativeLifecycleState>(lifecycleKey(narrativeId));
+  if (!parsed || parsed.narrativeId !== narrativeId || !Array.isArray(parsed.snapshots)) {
     return undefined;
   }
+  return parsed;
 }
 
 async function writeLifecycleState(state: NarrativeLifecycleState) {
-  await ensureDataDir();
-  await writeFile(storePath(state.narrativeId), JSON.stringify(state, null, 2), "utf8");
+  const { backend } = await kvSetJson(lifecycleKey(state.narrativeId), state);
+  state.persistenceBackend = backend;
 }
 
 export type AppendSnapshotInput = {
@@ -409,6 +398,62 @@ export async function getOrRefreshNarrativeLifecycle(
     await writeLifecycleState(withValidation);
   } catch {
     // ignore ephemeral write failures
+  }
+
+  return withValidation;
+}
+
+/**
+ * Merge client-held snapshots (e.g. localStorage) with server state for recovery
+ * when the server previously used ephemeral storage.
+ */
+export async function mergeClientLifecycleSnapshots(
+  narrativeId: string,
+  clientSnapshots: LifecycleSnapshot[],
+): Promise<NarrativeLifecycleState> {
+  const existing = await readLifecycleState(narrativeId);
+  const byAt = new Map<string, LifecycleSnapshot>();
+
+  for (const snap of existing?.snapshots ?? []) {
+    byAt.set(snap.at, snap);
+  }
+  for (const snap of clientSnapshots) {
+    if (!snap?.at) {
+      continue;
+    }
+    byAt.set(snap.at, snap);
+  }
+
+  let snapshots = Array.from(byAt.values()).sort(
+    (a, b) => Date.parse(a.at) - Date.parse(b.at),
+  );
+
+  if (snapshots.length > 90) {
+    snapshots = snapshots.slice(-90);
+  }
+
+  const latest = snapshots[snapshots.length - 1];
+  const score = latest ? (latest.overallScore ?? latest.narrativeScore) : 0;
+  const stage = classifyLifecycleStage(snapshots, score);
+  const updatedAt = latest?.at ?? new Date().toISOString();
+
+  const state: NarrativeLifecycleState = {
+    narrativeId,
+    updatedAt,
+    stage,
+    snapshots,
+  };
+
+  const validation = await validateLifecyclePerformance(state);
+  const withValidation: NarrativeLifecycleState = {
+    ...state,
+    validation,
+  };
+
+  try {
+    await writeLifecycleState(withValidation);
+  } catch {
+    // Ephemeral hosts may reject writes — still return in-memory state.
   }
 
   return withValidation;

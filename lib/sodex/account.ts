@@ -8,6 +8,7 @@ export type SodexBalance = {
 
 export type SodexOpenOrder = {
   clOrdId?: string;
+  orderId?: number;
   price?: number;
   quantity?: number;
   filledQuantity?: number;
@@ -15,6 +16,7 @@ export type SodexOpenOrder = {
   side?: string;
   status?: string;
   symbol?: string;
+  symbolId?: number;
 };
 
 export type SodexAccountState = {
@@ -58,6 +60,8 @@ function parseOrder(value: unknown): SodexOpenOrder | undefined {
   return {
     symbol,
     clOrdId: asString(value.clOrdID) ?? asString(value.clOrdId),
+    orderId: asNumber(value.orderID) ?? asNumber(value.orderId) ?? asNumber(value.id),
+    symbolId: asNumber(value.symbolID) ?? asNumber(value.symbolId),
     side: asString(value.side),
     status: asString(value.status),
     price: asNumber(value.price),

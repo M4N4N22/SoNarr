@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { BasketExecutionReadiness } from "@/lib/sodex";
+import type { BasketExecutionReadiness, SodexNetwork } from "@/lib/sodex";
 import {
+  clampBasketNotionalForBalance,
   clampBasketNotionalUsd,
   formatWeightedAssetsParam,
   getSodexBasketNotionalLimits,
@@ -14,8 +15,9 @@ type WeightedAsset = { asset: string; weight: number };
 export function useBasketExecutionReadiness(
   weightedAssets: WeightedAsset[],
   initialReadiness: BasketExecutionReadiness,
+  networkOverride?: SodexNetwork,
 ) {
-  const network = initialReadiness.network;
+  const network = networkOverride ?? initialReadiness.network;
   const limits = getSodexBasketNotionalLimits(network);
   const [basketNotionalUsd, setBasketNotionalUsdState] = useState(() =>
     clampBasketNotionalUsd(initialReadiness.totalNotionalUsd, network),
@@ -24,17 +26,25 @@ export function useBasketExecutionReadiness(
   const [loadingReadiness, setLoadingReadiness] = useState(false);
 
   const setBasketNotionalUsd = useCallback(
-    (value: number) => {
-      setBasketNotionalUsdState(clampBasketNotionalUsd(value, network));
+    (value: number, availableUsdc?: number) => {
+      setBasketNotionalUsdState(
+        clampBasketNotionalForBalance(value, network, availableUsdc),
+      );
     },
     [network],
   );
 
   const skipInitialFetch = useRef(true);
+  const networkChanged = network !== initialReadiness.network;
+
+  useEffect(() => {
+    setBasketNotionalUsdState((current) => clampBasketNotionalUsd(current, network));
+  }, [network]);
 
   useEffect(() => {
     if (
       skipInitialFetch.current &&
+      !networkChanged &&
       basketNotionalUsd === initialReadiness.totalNotionalUsd
     ) {
       skipInitialFetch.current = false;
@@ -50,7 +60,7 @@ export function useBasketExecutionReadiness(
       try {
         const assetsParam = formatWeightedAssetsParam(weightedAssets);
         const response = await fetch(
-          `/api/execution/readiness?assets=${encodeURIComponent(assetsParam)}&notionalUsd=${basketNotionalUsd}`,
+          `/api/execution/readiness?assets=${encodeURIComponent(assetsParam)}&notionalUsd=${basketNotionalUsd}&network=${network}`,
           { signal: controller.signal },
         );
 
@@ -75,7 +85,7 @@ export function useBasketExecutionReadiness(
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [basketNotionalUsd, initialReadiness, weightedAssets]);
+  }, [basketNotionalUsd, initialReadiness, network, networkChanged, weightedAssets]);
 
   return {
     basketNotionalUsd,
@@ -83,5 +93,6 @@ export function useBasketExecutionReadiness(
     executionReadiness,
     loadingReadiness,
     limits,
+    network,
   };
 }

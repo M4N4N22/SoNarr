@@ -1,5 +1,5 @@
 import { asNumber, asString, isRecord, requestSodexGet } from "./client";
-import { getSodexNetwork } from "./config";
+import { getDefaultSodexNetwork, type SodexNetwork } from "./config";
 
 export type SodexSpotSymbol = {
   id: number;
@@ -57,6 +57,7 @@ const SYMBOLS_CACHE_TTL_MS = 5 * 60 * 1000;
 let symbolsCache:
   | {
       expiresAt: number;
+      network: SodexNetwork;
       symbols: SodexSpotSymbol[];
       status: import("@/lib/types/data-source").EndpointStatus;
     }
@@ -143,10 +144,18 @@ export function symbolAcceptsNewOrders(symbol: SodexSpotSymbol) {
   return symbol.status.trim().toUpperCase() === "TRADING";
 }
 
-export async function getSpotSymbols(forceRefresh = false) {
+export async function getSpotSymbols(
+  forceRefresh = false,
+  network: SodexNetwork = getDefaultSodexNetwork(),
+) {
   const now = Date.now();
 
-  if (!forceRefresh && symbolsCache && symbolsCache.expiresAt > now) {
+  if (
+    !forceRefresh &&
+    symbolsCache &&
+    symbolsCache.network === network &&
+    symbolsCache.expiresAt > now
+  ) {
     return { data: symbolsCache.symbols, endpoints: [symbolsCache.status] };
   }
 
@@ -164,6 +173,7 @@ export async function getSpotSymbols(forceRefresh = false) {
         .filter((symbol) => symbolAcceptsNewOrders(symbol));
     },
     300,
+    network,
   );
 
   if (!result.ok) {
@@ -172,6 +182,7 @@ export async function getSpotSymbols(forceRefresh = false) {
 
   symbolsCache = {
     expiresAt: now + SYMBOLS_CACHE_TTL_MS,
+    network,
     symbols: result.data,
     status: result.status,
   };
@@ -216,7 +227,10 @@ export function resolveSpotSymbol(asset: string, symbols: SodexSpotSymbol[]) {
   });
 }
 
-export async function getOrderBook(symbol: string) {
+export async function getOrderBook(
+  symbol: string,
+  network: SodexNetwork = getDefaultSodexNetwork(),
+) {
   return requestSodexGet(
     `/markets/${encodeURIComponent(symbol)}/orderbook?limit=${ORDERBOOK_LIMIT}`,
     `SoDEX Orderbook: ${symbol}`,
@@ -231,10 +245,12 @@ export async function getOrderBook(symbol: string) {
         asks: parseOrderBookLevels(payload.asks),
       } satisfies SodexOrderBook;
     },
+    30,
+    network,
   );
 }
 
-export async function getMarketTickers() {
+export async function getMarketTickers(network: SodexNetwork = getDefaultSodexNetwork()) {
   return requestSodexGet(
     "/markets/tickers",
     "SoDEX Market Tickers",
@@ -274,10 +290,15 @@ export async function getMarketTickers() {
         .filter((item): item is SodexTicker => item !== undefined);
     },
     15,
+    network,
   );
 }
 
-export async function getRecentTrades(symbol: string, limit = 20) {
+export async function getRecentTrades(
+  symbol: string,
+  limit = 20,
+  network: SodexNetwork = getDefaultSodexNetwork(),
+) {
   return requestSodexGet(
     `/markets/${encodeURIComponent(symbol)}/trades`,
     `SoDEX Trades: ${symbol}`,
@@ -308,6 +329,7 @@ export async function getRecentTrades(symbol: string, limit = 20) {
         .filter((item): item is SodexTrade => Boolean(item));
     },
     15,
+    network,
   );
 }
 

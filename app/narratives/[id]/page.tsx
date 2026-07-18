@@ -24,6 +24,10 @@ import {
 import { getOrRefreshNarrativeLifecycle } from "@/lib/sonarr/lifecycle";
 import { getBasketExecutionReadiness } from "@/lib/sodex";
 import {
+  resolveSodexNetwork,
+  SODEx_NETWORK_COOKIE,
+} from "@/lib/sodex/network-preference";
+import {
   filterFeaturedNewsForNarrative,
   getBasketLiquidityContext,
   getFeaturedNews,
@@ -38,7 +42,7 @@ import {
   type NarrativeSignal,
   type RadarData,
 } from "@/lib/sosovalue";
-
+import { cookies } from "next/headers";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
@@ -175,6 +179,8 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
   }
 
   const listedCurrencies = await getListedCurrencies();
+  const jar = await cookies();
+  const operatorNetwork = resolveSodexNetwork(jar.get(SODEx_NETWORK_COOKIE)?.value);
   const listedSymbols = listedCurrencies.data.map((currency) => currency.symbol);
   const candidates = extractNarrativeAssetCandidates(narrative, defaultAssetsByNarrative, {
     listedSymbols,
@@ -203,7 +209,7 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
     getIndexConstituentData(),
     getNarrativeMarketSnapshots(narrative, assets),
     getSectorSpotlightData(),
-    getBasketExecutionReadiness(weightedAssets),
+    getBasketExecutionReadiness(weightedAssets, undefined, operatorNetwork),
     getBasketLiquidityContext(assets),
     getMacroEvents(),
     getFeaturedNews(8),

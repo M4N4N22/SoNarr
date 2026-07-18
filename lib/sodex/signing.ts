@@ -1,7 +1,7 @@
 import { hashTypedData, keccak256, toBytes, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-import { getSodexChainId, getSodexNetwork } from "./config";
+import { getDefaultSodexNetwork, getSodexChainId } from "./config";
 
 const EXCHANGE_ACTION_TYPES = {
   ExchangeAction: [
@@ -121,12 +121,57 @@ export function formatSodexSignature(signature: Hex): Hex {
   return (`0x01${signature.slice(2)}`) as Hex;
 }
 
+export type BatchCancelOrderItem = {
+  symbolID: number;
+  clOrdID: string;
+  orderID?: number;
+  origClOrdID?: string;
+};
+
+export type BatchCancelOrderRequest = {
+  accountID: number;
+  cancels: BatchCancelOrderItem[];
+};
+
+function serializeCancelItem(item: BatchCancelOrderItem) {
+  const parts = [
+    `"symbolID":${item.symbolID}`,
+    `"clOrdID":${JSON.stringify(item.clOrdID)}`,
+  ];
+
+  if (item.orderID !== undefined) {
+    parts.push(`"orderID":${item.orderID}`);
+  }
+
+  if (item.origClOrdID !== undefined) {
+    parts.push(`"origClOrdID":${JSON.stringify(item.origClOrdID)}`);
+  }
+
+  return `{${parts.join(",")}}`;
+}
+
+function serializeBatchCancelOrderRequest(request: BatchCancelOrderRequest) {
+  const cancels = request.cancels.map(serializeCancelItem).join(",");
+  return `{"accountID":${request.accountID},"cancels":[${cancels}]}`;
+}
+
+export function getBatchCancelOrderPayloadHash(request: BatchCancelOrderRequest): Hex {
+  const paramsJson = serializeBatchCancelOrderRequest(request);
+  const payloadJson = serializeActionPayload("batchCancelOrder", paramsJson);
+  return hashPayload(payloadJson);
+}
+
+export function buildBatchCancelOrderBody(request: BatchCancelOrderRequest) {
+  return serializeBatchCancelOrderRequest(request);
+}
+
 export async function signBatchNewOrderRequest(
   request: BatchNewOrderRequest,
   nonce: bigint,
   privateKeyHex: Hex,
+  network = getDefaultSodexNetwork(),
 ) {
-  const chainId = getSodexChainId(getSodexNetwork());
+  const chainId = getSodexChainId(network);
   const payloadHash = getBatchNewOrderPayloadHash(request);
   const digest = hashTypedData(getSodexExchangeTypedData(payloadHash, nonce, chainId));
   const account = privateKeyToAccount(privateKeyHex);
