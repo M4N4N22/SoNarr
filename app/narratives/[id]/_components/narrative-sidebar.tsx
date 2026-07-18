@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Package, Rocket, Target } from "lucide-react";
+import { Activity, FileText, Package, Rocket, Target } from "lucide-react";
 
 import type { NarrativeWorkspaceProps, NarrativeWorkspaceTab } from "./types";
 import { narrativeTabs } from "./types";
@@ -14,6 +14,7 @@ const tabIcons: Record<NarrativeWorkspaceTab, typeof Target> = {
   overview: Target,
   evidence: FileText,
   product: Package,
+  lifecycle: Activity,
   launch: Rocket,
 };
 
@@ -36,6 +37,7 @@ export function NarrativeSidebar({
           <div className="flex flex-wrap gap-1.5">
             <Badge variant="muted">{sourceLabel}</Badge>
             <Badge variant="outline">{narrative.status}</Badge>
+            <Badge variant="outline">{data.lifecycle.stage}</Badge>
           </div>
           <div className="mt-2 flex items-start gap-2">
             <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${bg}`}>

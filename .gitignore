@@ -41,3 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 /internal-docs
+
+/data/lifecycle/*.json
+!/data/lifecycle/.gitkeep.json
+/data/trade-journal/

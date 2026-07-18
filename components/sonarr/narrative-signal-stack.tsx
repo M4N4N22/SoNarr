@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 const layerHints: Record<string, string> = {
   "News heat": "How loud this theme is in SoSoValue hot news and search right now.",
   "Market momentum": "Whether linked assets are moving in live market snapshots.",
-  "Historical trend": "Approximate 7-day price direction from daily klines.",
+  "Historical trend": "Directional 7d/30d returns, volatility, and consistency from daily klines.",
   "Sector alignment": "Match to SoSoValue sector or spotlight categories.",
   "Index relevance": "Overlap with official SoSoValue index constituents.",
   "TradFi flow": "Spot ETF inflow and trading activity (Bitcoin ETF narrative).",

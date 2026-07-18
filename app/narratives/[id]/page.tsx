@@ -15,7 +15,13 @@ import {
   getRelevantIndexTickers,
   getSectorSpotlightData,
 } from "@/lib/sonarr/signal-stack";
-import { resolveNarrativeBasketAssets } from "@/lib/sonarr/basket-assets";
+import {
+  enrichSelectedBasketProvenance,
+  extractNarrativeAssetCandidates,
+  rankBasketAssets,
+  resolveNarrativeBasketAssets,
+} from "@/lib/sonarr/basket-assets";
+import { getOrRefreshNarrativeLifecycle } from "@/lib/sonarr/lifecycle";
 import { getBasketExecutionReadiness } from "@/lib/sodex";
 import {
   filterFeaturedNewsForNarrative,
@@ -23,6 +29,7 @@ import {
   getFeaturedNews,
   getIndexMarketSnapshots,
   getKlineTrendsForSymbols,
+  getListedCurrencies,
   getMacroEvents,
   getNarrativeEtfSnapshot,
 } from "@/lib/sosovalue/enrichment";
@@ -66,8 +73,10 @@ function uniqueValues(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-function getAssets(narrative: NarrativeSignal) {
-  return resolveNarrativeBasketAssets(narrative, defaultAssetsByNarrative);
+function getAssets(narrative: NarrativeSignal, listedSymbols?: string[]) {
+  return resolveNarrativeBasketAssets(narrative, defaultAssetsByNarrative, {
+    listedSymbols,
+  });
 }
 
 function getWeightedAssets(assets: string[]) {
@@ -165,7 +174,16 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
     );
   }
 
-  const assets = getAssets(narrative);
+  const listedCurrencies = await getListedCurrencies();
+  const listedSymbols = listedCurrencies.data.map((currency) => currency.symbol);
+  const candidates = extractNarrativeAssetCandidates(narrative, defaultAssetsByNarrative, {
+    listedSymbols,
+  });
+  const selectedProvenance = rankBasketAssets(candidates, { max: 5 });
+  const assets =
+    selectedProvenance.length > 0
+      ? selectedProvenance.map((item) => item.asset)
+      : getAssets(narrative, listedSymbols);
   const weightedAssets = getWeightedAssets(assets);
   const brief = getNarrativeBrief(narrative);
   const evidenceBullets = getEvidenceBullets(narrative);
@@ -190,7 +208,7 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
     getMacroEvents(),
     getFeaturedNews(8),
     getNarrativeEtfSnapshot(narrative.id),
-    getKlineTrendsForSymbols(assets),
+    getKlineTrendsForSymbols(assets, 5),
   ]);
   const relevantIndexTickers = getRelevantIndexTickers(assets, indexConstituents.data);
   const indexSnapshotsResult = await getIndexMarketSnapshots(relevantIndexTickers);
@@ -198,7 +216,29 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
     featuredNewsResult.data,
     narrative,
   );
+  const liquidityTurnoverByAsset = Object.fromEntries(
+    liquidityContextResult.data.assets.map((asset) => [
+      asset.symbol.toUpperCase(),
+      asset.totalTurnover24h ?? 0,
+    ]),
+  );
+  const routableByAsset = Object.fromEntries(
+    executionReadiness.legs.map((leg) => [leg.asset.toUpperCase(), leg.tradable]),
+  );
+  const assetProvenance = enrichSelectedBasketProvenance(
+    selectedProvenance.length > 0
+      ? selectedProvenance
+      : assets.map((asset) => ({
+          asset,
+          evidenceCount: 0,
+          sources: ["default" as const],
+          rankScore: 40,
+          reason: "Narrative default basket",
+        })),
+    { liquidityTurnoverByAsset, routableByAsset },
+  );
   const signalEndpointStatuses = [
+    ...listedCurrencies.endpoints,
     ...indexConstituents.endpoints,
     ...marketSnapshots.endpoints,
     ...sectorSpotlight.endpoints,
@@ -227,6 +267,22 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
     sectorSpotlight: sectorSpotlight.data,
     signalEndpointStatuses,
     weightedAssets,
+  });
+  const lifecycle = await getOrRefreshNarrativeLifecycle({
+    narrativeId: narrative.id,
+    narrativeScore: narrative.score,
+    confidence: narrative.confidence,
+    overallScore: signalStack.overallScore,
+    layerScores: signalStack.layers.map((layer) => ({
+      name: layer.name,
+      score: layer.score,
+      dataMode: layer.dataMode,
+    })),
+    assets,
+    executionCoverage:
+      executionReadiness.totalLegs > 0
+        ? executionReadiness.tradableCount / executionReadiness.totalLegs
+        : undefined,
   });
 
   return (
@@ -258,10 +314,12 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
         }}
         assets={assets}
         weightedAssets={weightedAssets}
+        assetProvenance={assetProvenance}
         methodology={methodology}
         signalStack={signalStack}
         executionReadiness={executionReadiness}
         liquidityContext={liquidityContextResult.data}
+        lifecycle={lifecycle}
         aiBriefInput={{
           basis: evidenceBullets,
           confidence: narrative.confidence,
@@ -293,6 +351,34 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
             totalBidDepthUsd: executionReadiness.totalBidDepthUsd,
             summary: executionReadiness.summary,
             legs: executionReadiness.legs,
+          },
+        }}
+        decisionAssistInput={{
+          narrativeId: narrative.id,
+          narrativeTitle: `${narrative.label} Momentum`,
+          risk: riskLevel,
+          stage: lifecycle.stage,
+          overallScore: signalStack.overallScore,
+          narrativeScore: narrative.score,
+          confidence: narrative.confidence,
+          validation: lifecycle.validation
+            ? {
+                mode: lifecycle.validation.mode,
+                summary: lifecycle.validation.summary,
+                highConviction: lifecycle.validation.highConviction,
+                lowConviction: lifecycle.validation.lowConviction,
+                refinementCues: lifecycle.validation.refinementCues,
+                rebalanceSuggested: lifecycle.validation.rebalanceSuggested,
+                scoreDeltaPct: lifecycle.validation.scoreDeltaPct,
+              }
+            : undefined,
+          executionReadiness: {
+            mode: executionReadiness.mode,
+            network: executionReadiness.network,
+            tradableCount: executionReadiness.tradableCount,
+            totalLegs: executionReadiness.totalLegs,
+            weightedSlippagePct: executionReadiness.weightedSlippagePct,
+            summary: executionReadiness.summary,
           },
         }}
         launchRoom={{

@@ -7,7 +7,7 @@ import { RiskMeter } from "@/components/charts/risk-meter";
 import type { NarrativeWorkspaceProps } from "../types";
 
 export function ProductPanel({ data }: { data: NarrativeWorkspaceProps }) {
-  const { narrative, assets, weightedAssets, methodology, riskLevel } = data;
+  const { narrative, assets, weightedAssets, methodology, riskLevel, assetProvenance } = data;
 
   return (
     <div className="space-y-3">
@@ -24,6 +24,40 @@ export function ProductPanel({ data }: { data: NarrativeWorkspaceProps }) {
             hint: assets[index] ?? asset.asset,
           }))}
         />
+      </PageSection>
+
+      <PageSection
+        icon={Scale}
+        title="Leg provenance"
+        description="Why each asset was included — evidence hits, CEX liquidity context, and SoDEX routability."
+      >
+        <ul className="space-y-2">
+          {(assetProvenance.length > 0 ? assetProvenance : weightedAssets.map((w) => ({
+            asset: w.asset,
+            evidenceCount: 0,
+            sources: [] as string[],
+            rankScore: w.weight,
+            reason: "Basket leg",
+          }))).map((leg) => (
+            <li
+              key={leg.asset}
+              className="rounded-md border border-border/80 bg-muted/30 px-3 py-2 text-sm"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium text-foreground">{leg.asset}</span>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  rank {Math.round(leg.rankScore)}
+                  {"evidenceCount" in leg && typeof leg.evidenceCount === "number"
+                    ? ` · ${leg.evidenceCount} hits`
+                    : ""}
+                </span>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {"reason" in leg && typeof leg.reason === "string" ? leg.reason : "Basket leg"}
+              </p>
+            </li>
+          ))}
+        </ul>
       </PageSection>
 
       <div className="grid gap-3 xl:grid-cols-2">

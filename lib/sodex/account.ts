@@ -10,6 +10,8 @@ export type SodexOpenOrder = {
   clOrdId?: string;
   price?: number;
   quantity?: number;
+  filledQuantity?: number;
+  remainingQuantity?: number;
   side?: string;
   status?: string;
   symbol?: string;
@@ -60,6 +62,15 @@ function parseOrder(value: unknown): SodexOpenOrder | undefined {
     status: asString(value.status),
     price: asNumber(value.price),
     quantity: asNumber(value.quantity) ?? asNumber(value.qty),
+    filledQuantity:
+      asNumber(value.filledQuantity) ??
+      asNumber(value.filledQty) ??
+      asNumber(value.cumQty) ??
+      asNumber(value.executedQty),
+    remainingQuantity:
+      asNumber(value.remainingQuantity) ??
+      asNumber(value.leavesQty) ??
+      asNumber(value.remainingQty),
   };
 }
 

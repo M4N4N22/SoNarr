@@ -36,11 +36,19 @@ export function LaunchPanel({ data }: { data: NarrativeWorkspaceProps }) {
       <SodexTradingPanel
         executionReadiness={executionReadiness}
         weightedAssets={data.weightedAssets}
+        narrativeId={data.narrative.id}
         narrativeTitle={`${data.narrative.label} Momentum`}
         basketNotionalUsd={basketNotionalUsd}
         onBasketNotionalChange={setBasketNotionalUsd}
         loadingReadiness={loadingReadiness}
       />
+
+      {data.lifecycle.validation?.rebalanceSuggested ? (
+        <div className="rounded-md border border-chart-4/30 bg-chart-4/10 px-3 py-2 text-sm text-muted-foreground">
+          Lifecycle cue: conviction moved ~{data.lifecycle.validation.scoreDeltaPct?.toFixed(1)}% —
+          review weights before sizing up (see Lifecycle tab).
+        </div>
+      ) : null}
 
       <PageSection
         icon={Megaphone}

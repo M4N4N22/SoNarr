@@ -1,6 +1,9 @@
 import type { ExecutionBriefInput } from "@/lib/ai/execution-gemini";
+import type { DecisionAssistInput } from "@/lib/ai/decision-gemini";
 import type { NarrativeBriefInput } from "@/lib/ai/gemini";
 import type { BasketExecutionReadiness } from "@/lib/sodex";
+import type { BasketAssetProvenance } from "@/lib/sonarr/basket-assets";
+import type { NarrativeLifecycleState } from "@/lib/sonarr/lifecycle";
 import type { BasketLiquidityContext } from "@/lib/sosovalue/enrichment";
 import type { NarrativeSignalStack as SignalStackData } from "@/lib/sonarr/signal-stack";
 import type {
@@ -13,7 +16,12 @@ import type { NewsItem as FeedNewsItem } from "@/lib/sosovalue";
 
 export type WeightedAsset = { asset: string; weight: number };
 
-export type NarrativeWorkspaceTab = "overview" | "evidence" | "product" | "launch";
+export type NarrativeWorkspaceTab =
+  | "overview"
+  | "evidence"
+  | "product"
+  | "lifecycle"
+  | "launch";
 
 export type NarrativeWorkspaceProps = {
   narrative: {
@@ -45,12 +53,15 @@ export type NarrativeWorkspaceProps = {
   };
   assets: string[];
   weightedAssets: WeightedAsset[];
+  assetProvenance: BasketAssetProvenance[];
   methodology: string[];
   signalStack: SignalStackData;
   executionReadiness: BasketExecutionReadiness;
   liquidityContext: BasketLiquidityContext;
+  lifecycle: NarrativeLifecycleState;
   aiBriefInput: NarrativeBriefInput;
   executionBriefInput: ExecutionBriefInput;
+  decisionAssistInput: DecisionAssistInput;
   launchRoom: {
     narrativeTitle: string;
     summary: string;
@@ -102,6 +113,14 @@ export const narrativeTabs: Array<{
     title: "Index preview",
     description:
       "The proposed weighted basket for this narrative: asset mix, methodology rules, and risk checks. No live trading on this tab.",
+  },
+  {
+    id: "lifecycle",
+    label: "Lifecycle",
+    hint: "Score history and forward-return proof.",
+    title: "Narrative lifecycle",
+    description:
+      "Conviction snapshots over time, lifecycle stage, and forward returns from SoSoValue klines — evidence that the narrative loop improves decisions.",
   },
   {
     id: "launch",
