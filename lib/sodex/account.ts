@@ -1,4 +1,6 @@
 import { asNumber, asString, isRecord, requestSodexGet } from "./client";
+import type { SodexNetwork } from "./network-preference";
+import { getDefaultSodexNetwork } from "./network-preference";
 
 export type SodexBalance = {
   available?: number;
@@ -31,6 +33,14 @@ export type SodexApiKey = {
   publicKey: string;
   type?: string;
 };
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+function normalizeWalletAddress(address: string) {
+  const trimmed = address.trim();
+  // SoDEX account lookups are case-sensitive on some gateways; prefer lowercase.
+  return trimmed.toLowerCase();
+}
 
 function parseBalance(value: unknown): SodexBalance | undefined {
   if (!isRecord(value)) {
@@ -78,8 +88,11 @@ function parseOrder(value: unknown): SodexOpenOrder | undefined {
   };
 }
 
-export async function getAccountBalances(address: string) {
-  const normalized = address.trim();
+export async function getAccountBalances(
+  address: string,
+  network: SodexNetwork = getDefaultSodexNetwork(),
+) {
+  const normalized = normalizeWalletAddress(address);
 
   return requestSodexGet(
     `/accounts/${encodeURIComponent(normalized)}/balances`,
@@ -93,12 +106,17 @@ export async function getAccountBalances(address: string) {
         .map(parseBalance)
         .filter((balance): balance is SodexBalance => Boolean(balance));
     },
-    10,
+    0,
+    network,
+    { cache: "no-store" },
   );
 }
 
-export async function getAccountOrders(address: string) {
-  const normalized = address.trim();
+export async function getAccountOrders(
+  address: string,
+  network: SodexNetwork = getDefaultSodexNetwork(),
+) {
+  const normalized = normalizeWalletAddress(address);
 
   return requestSodexGet(
     `/accounts/${encodeURIComponent(normalized)}/orders`,
@@ -112,20 +130,36 @@ export async function getAccountOrders(address: string) {
         .map(parseOrder)
         .filter((order): order is SodexOpenOrder => Boolean(order));
     },
-    10,
+    0,
+    network,
+    { cache: "no-store" },
   );
 }
 
-function parseAccountState(payload: unknown): SodexAccountState | undefined {
+/**
+ * Parses WsSpotState. Unregistered wallets return aid=0 / zero user — treat as not found.
+ */
+function parseAccountState(payload: unknown): SodexAccountState | null | undefined {
   if (!isRecord(payload)) {
     return undefined;
   }
 
-  const accountId = asNumber(payload.aid);
-  const userId = asNumber(payload.uid);
+  const accountId =
+    asNumber(payload.aid) ?? asNumber(payload.accountID) ?? asNumber(payload.accountId);
+  const userId = asNumber(payload.uid) ?? asNumber(payload.userID) ?? asNumber(payload.userId);
   const user = asString(payload.user);
 
-  if (accountId === undefined || userId === undefined || !user) {
+  // Gateway returns a zeroed placeholder when the wallet has never onboarded on this network.
+  if (
+    accountId === 0 ||
+    userId === 0 ||
+    !user ||
+    user.toLowerCase() === ZERO_ADDRESS
+  ) {
+    return null;
+  }
+
+  if (accountId === undefined || userId === undefined) {
     return undefined;
   }
 
@@ -152,19 +186,34 @@ function parseApiKey(value: unknown): SodexApiKey | undefined {
   };
 }
 
-export async function getAccountState(address: string) {
-  const normalized = address.trim();
+export async function getAccountState(
+  address: string,
+  network: SodexNetwork = getDefaultSodexNetwork(),
+) {
+  const normalized = normalizeWalletAddress(address);
 
   return requestSodexGet(
     `/accounts/${encodeURIComponent(normalized)}/state`,
     `SoDEX State: ${normalized.slice(0, 8)}…`,
-    (payload) => parseAccountState(payload),
-    10,
+    (payload) => {
+      const parsed = parseAccountState(payload);
+      // null = not onboarded (valid response); undefined = bad shape
+      if (parsed === null) {
+        return null;
+      }
+      return parsed;
+    },
+    0,
+    network,
+    { cache: "no-store" },
   );
 }
 
-export async function getAccountApiKeys(address: string) {
-  const normalized = address.trim();
+export async function getAccountApiKeys(
+  address: string,
+  network: SodexNetwork = getDefaultSodexNetwork(),
+) {
+  const normalized = normalizeWalletAddress(address);
 
   return requestSodexGet(
     `/accounts/${encodeURIComponent(normalized)}/api-keys`,
@@ -178,6 +227,12 @@ export async function getAccountApiKeys(address: string) {
         .map(parseApiKey)
         .filter((key): key is SodexApiKey => Boolean(key));
     },
-    30,
+    0,
+    network,
+    { cache: "no-store" },
   );
+}
+
+export function sodexOnboardingUrl(network: SodexNetwork) {
+  return network === "mainnet" ? "https://sodex.com" : "https://testnet.sodex.com/faucet";
 }

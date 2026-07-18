@@ -1,12 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useAccount, useChainId } from "wagmi";
 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SODEX_CHAIN_IDS } from "@/lib/sodex/config";
 import type { SodexNetwork } from "@/lib/sodex";
-import { SODEx_NETWORK_STORAGE_KEY } from "@/lib/sodex/network-preference";
+import {
+  SODEx_NETWORK_CHANGE_EVENT,
+  SODEx_NETWORK_STORAGE_KEY,
+} from "@/lib/sodex/network-preference";
 
 type SodexNetworkSwitchProps = {
   network: SodexNetwork;
@@ -15,11 +19,11 @@ type SodexNetworkSwitchProps = {
   compact?: boolean;
 };
 
+/** Compact preference control when header wallet switch is not mounted (rare). Prefer header. */
 export function SodexNetworkSwitch({
   network,
   onNetworkChange,
   locked = false,
-  compact = false,
 }: SodexNetworkSwitchProps) {
   const [confirmMainnet, setConfirmMainnet] = useState(false);
   const [pending, setPending] = useState(false);
@@ -42,6 +46,9 @@ export function SodexNetworkSwitch({
         } catch {
           // ignore
         }
+        window.dispatchEvent(
+          new CustomEvent(SODEx_NETWORK_CHANGE_EVENT, { detail: { network: next } }),
+        );
         onNetworkChange(payload.network as SodexNetwork);
       } finally {
         setPending(false);
@@ -64,37 +71,35 @@ export function SodexNetworkSwitch({
 
   return (
     <>
-      <div className={`flex flex-wrap items-center gap-2 ${compact ? "" : ""}`}>
-        <Badge variant={network === "mainnet" ? "muted" : "outline"}>
-          {network === "mainnet" ? "MAINNET" : "TESTNET"}
-        </Badge>
-        {!locked ? (
-          <div className="flex overflow-hidden rounded-md border border-border">
-            <Button
-              type="button"
-              size="sm"
-              variant={network === "testnet" ? "default" : "ghost"}
-              className="rounded-none"
-              disabled={pending}
-              onClick={() => requestSwitch("testnet")}
-            >
-              Testnet
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={network === "mainnet" ? "default" : "ghost"}
-              className="rounded-none"
-              disabled={pending}
-              onClick={() => requestSwitch("mainnet")}
-            >
-              Mainnet
-            </Button>
-          </div>
-        ) : (
-          <span className="text-[11px] text-muted-foreground">Locked by deploy config</span>
-        )}
+      <div
+        className="flex overflow-hidden rounded-md border border-border"
+        role="group"
+        aria-label="SoDEX network"
+      >
+        <Button
+          type="button"
+          size="sm"
+          variant={network === "testnet" ? "default" : "ghost"}
+          className="rounded-none"
+          disabled={locked || pending}
+          onClick={() => requestSwitch("testnet")}
+        >
+          Testnet
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={network === "mainnet" ? "default" : "ghost"}
+          className="rounded-none"
+          disabled={locked || pending}
+          onClick={() => requestSwitch("mainnet")}
+        >
+          Mainnet
+        </Button>
       </div>
+      {locked ? (
+        <span className="ml-2 text-[11px] text-muted-foreground">Locked by deploy config</span>
+      ) : null}
 
       <ConfirmDialog
         open={confirmMainnet}
@@ -110,9 +115,21 @@ export function SodexNetworkSwitch({
   );
 }
 
+function networkFromChainId(chainId: number): SodexNetwork | undefined {
+  if (chainId === SODEX_CHAIN_IDS.testnet) {
+    return "testnet";
+  }
+  if (chainId === SODEX_CHAIN_IDS.mainnet) {
+    return "mainnet";
+  }
+  return undefined;
+}
+
 export function usePersistedSodexNetwork(initial: SodexNetwork) {
   const [network, setNetwork] = useState<SodexNetwork>(initial);
   const [locked, setLocked] = useState(false);
+  const { isConnected } = useAccount();
+  const chainId = useChainId();
 
   useEffect(() => {
     let cancelled = false;
@@ -143,6 +160,40 @@ export function usePersistedSodexNetwork(initial: SodexNetwork) {
     })();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // Follow wallet ValueChain when connected (header is source of truth).
+  useEffect(() => {
+    if (!isConnected) {
+      return;
+    }
+    const fromWallet = networkFromChainId(chainId);
+    if (fromWallet) {
+      setNetwork(fromWallet);
+    }
+  }, [chainId, isConnected]);
+
+  useEffect(() => {
+    function onCustom(event: Event) {
+      const detail = (event as CustomEvent<{ network?: SodexNetwork }>).detail;
+      if (detail?.network === "testnet" || detail?.network === "mainnet") {
+        setNetwork(detail.network);
+      }
+    }
+    function onStorage(event: StorageEvent) {
+      if (event.key !== SODEx_NETWORK_STORAGE_KEY) {
+        return;
+      }
+      if (event.newValue === "testnet" || event.newValue === "mainnet") {
+        setNetwork(event.newValue);
+      }
+    }
+    window.addEventListener(SODEx_NETWORK_CHANGE_EVENT, onCustom);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(SODEx_NETWORK_CHANGE_EVENT, onCustom);
+      window.removeEventListener("storage", onStorage);
     };
   }, []);
 

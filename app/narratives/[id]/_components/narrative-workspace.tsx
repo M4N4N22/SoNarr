@@ -96,6 +96,7 @@ function NarrativeWorkspaceInner(props: NarrativeWorkspaceProps) {
             title={getNarrativeTab(activeTab).title}
             description={getNarrativeTab(activeTab).description}
             icon={tabIcons[activeTab]}
+            compact={activeTab === "launch"}
           />
 
           {activeTab === "overview" ? <OverviewPanel data={props} /> : null}

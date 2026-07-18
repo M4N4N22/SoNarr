@@ -39,18 +39,34 @@ export function WorkspacePanelHeader({
   title,
   description,
   icon: Icon,
+  compact = false,
 }: {
   title: string;
   description: string;
   icon?: LucideIcon;
+  compact?: boolean;
 }) {
   return (
-    <div className="mb-4 rounded-lg bg-muted/30 px-4 py-3">
-      <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
-        {Icon ? <Icon className="h-5 w-5 text-primary" /> : null}
+    <div className={cn("mb-4", compact ? "px-0.5 py-1" : "rounded-lg bg-muted/30 px-4 py-3")}>
+      <h2
+        className={cn(
+          "flex items-center gap-2 font-semibold text-foreground",
+          compact ? "text-sm" : "text-base",
+        )}
+      >
+        {Icon ? <Icon className={cn(compact ? "h-4 w-4" : "h-5 w-5", "text-primary")} /> : null}
         {title}
       </h2>
-      <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
+      {description ? (
+        <p
+          className={cn(
+            "text-muted-foreground",
+            compact ? "mt-0.5 text-xs leading-5" : "mt-1 text-sm leading-6",
+          )}
+        >
+          {description}
+        </p>
+      ) : null}
     </div>
   );
 }

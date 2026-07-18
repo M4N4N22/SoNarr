@@ -89,7 +89,7 @@ export function BasketTradeStatus({
       <div className="rounded-md border border-primary/30 bg-primary/10 px-3 py-3 text-sm">
         <p className="font-medium text-foreground">{submittingMessage}</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Approve each wallet signature on ValueChain Testnet. Do not switch networks mid-flow.
+          Approve each signature on ValueChain. Do not switch networks mid-flow.
         </p>
       </div>
     );

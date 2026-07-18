@@ -2,6 +2,8 @@ export type SodexNetwork = "testnet" | "mainnet";
 
 export const SODEx_NETWORK_COOKIE = "sonarr_sodex_network";
 export const SODEx_NETWORK_STORAGE_KEY = "sonarr_sodex_network";
+/** Same-tab broadcast when header (or preference API) changes network. */
+export const SODEx_NETWORK_CHANGE_EVENT = "sonarr:sodex-network";
 
 export function parseSodexNetwork(value: string | null | undefined): SodexNetwork | undefined {
   const normalized = value?.trim().toLowerCase();

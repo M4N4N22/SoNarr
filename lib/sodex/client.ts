@@ -43,6 +43,7 @@ export async function requestSodexGet<T>(
   parse: (payload: unknown) => T | undefined,
   revalidate = 30,
   network: SodexNetwork = getDefaultSodexNetwork(),
+  options?: { cache?: RequestCache },
 ): Promise<EndpointResult<T>> {
   const startedAt = Date.now();
   const endpoint = `GET ${path.split("?")[0]}`;
@@ -51,7 +52,9 @@ export async function requestSodexGet<T>(
   try {
     const response = await fetch(url, {
       headers: { Accept: "application/json" },
-      next: { revalidate },
+      ...(options?.cache
+        ? { cache: options.cache }
+        : { next: { revalidate } }),
     });
     const durationMs = Date.now() - startedAt;
 

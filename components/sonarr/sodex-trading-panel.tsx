@@ -2,14 +2,12 @@
 
 import { getWalletClient } from "wagmi/actions";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Info, Wallet } from "lucide-react";
-import { useAccount, useChainId, useConfig, useConnect, useDisconnect } from "wagmi";
+import { AlertTriangle } from "lucide-react";
+import { useAccount, useChainId, useConfig } from "wagmi";
 
 import { BasketNotionalControl } from "@/components/sonarr/basket-notional-control";
 import { BasketOrderPlanTable } from "@/components/sonarr/basket-order-plan-table";
 import { BasketTradeStatus } from "@/components/sonarr/basket-trade-status";
-import { SodexNetworkBadge } from "@/components/sonarr/sodex-network-badge";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -22,6 +20,7 @@ import {
   planToBatchNewOrderRequest,
   singleOrderPlan,
   SODEX_CHAIN_IDS,
+  sodexOnboardingUrl,
   type BasketExecutionReadiness,
   type BasketTradePlan,
   type BasketTradeResult,
@@ -45,6 +44,8 @@ type SodexTradingPanelProps = {
 type AccountSnapshot = {
   accountId?: number;
   apiKeyName?: string;
+  onboarded: boolean;
+  onboardingUrl?: string;
   balances: Array<{ coin: string; available?: number; total?: number }>;
   orders: Array<{
     symbol?: string;
@@ -60,7 +61,7 @@ type AccountSnapshot = {
   }>;
 };
 
-type DialogKind = "connect" | "disconnect" | "notional" | "submit" | "cancel" | null;
+type DialogKind = "notional" | "submit" | "cancel" | null;
 
 async function prepareTradePlan(
   weightedAssets: WeightedAsset[],
@@ -141,8 +142,6 @@ export function SodexTradingPanel({
   const config = useConfig();
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
-  const { connect, connectors, isPending: isConnecting } = useConnect();
-  const { disconnect } = useDisconnect();
   const [accountSnapshot, setAccountSnapshot] = useState<AccountSnapshot | null>(null);
   const [tradePlan, setTradePlan] = useState<BasketTradePlan | null>(null);
   const [tradeResult, setTradeResult] = useState<BasketTradeResult | null>(null);
@@ -154,7 +153,6 @@ export function SodexTradingPanel({
   const [pendingNotional, setPendingNotional] = useState<number | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  const connector = connectors[0];
   const tradableLegs = executionReadiness.legs.filter((leg) => leg.tradable);
   const skippedReadinessLegs = executionReadiness.legs.filter((leg) => !leg.tradable);
   const chainId = SODEX_CHAIN_IDS[executionReadiness.network];
@@ -173,35 +171,35 @@ export function SodexTradingPanel({
     }
 
     if (!isConnected || !address) {
-      return "Connect your wallet to enable submit.";
-    }
-
-    if (!tradePlan || tradePlan.orders.length === 0) {
-      return "Preview the basket first to review limit orders before signing.";
+      return "Connect wallet in the header";
     }
 
     if (tradableLegs.length === 0) {
-      return "No basket legs are tradable on SoDEX for this narrative.";
+      return "No tradable legs on SoDEX";
+    }
+
+    if (accountSnapshot && !accountSnapshot.onboarded) {
+      return "Open SoDEX once with this wallet, then refresh";
     }
 
     const availableUsdc = usdcBalance?.available ?? usdcBalance?.total;
     if (typeof availableUsdc === "number" && basketNotionalUsd > availableUsdc) {
-      return `Basket size ($${basketNotionalUsd.toLocaleString()}) exceeds your spot balance (${availableUsdc.toLocaleString()} USDC). Lower the basket size or add funds.`;
+      return `Size exceeds balance (${availableUsdc.toLocaleString()} USDC)`;
     }
 
     if (!onSodexChain) {
-      return `Switch your wallet to ${sodexChain.name} before signing.`;
+      return `Switch to ${sodexChain.name} in the header`;
     }
 
     return undefined;
   }, [
+    accountSnapshot,
     address,
     basketNotionalUsd,
     isConnected,
     loadingTrade,
     onSodexChain,
     sodexChain.name,
-    tradePlan,
     tradableLegs.length,
     usdcBalance,
   ]);
@@ -212,33 +210,46 @@ export function SodexTradingPanel({
     }
 
     setLoadingAccount(true);
+    const network = executionReadiness.network;
+    const qs = `?network=${encodeURIComponent(network)}`;
 
     try {
       const [balancesResponse, ordersResponse, stateResponse, apiKeysResponse] =
         await Promise.all([
-          fetch(`/api/sodex/account/${address}/balances`),
-          fetch(`/api/sodex/account/${address}/orders`),
-          fetch(`/api/sodex/account/${address}/state`),
-          fetch(`/api/sodex/account/${address}/api-keys`),
+          fetch(`/api/sodex/account/${address}/balances${qs}`),
+          fetch(`/api/sodex/account/${address}/orders${qs}`),
+          fetch(`/api/sodex/account/${address}/state${qs}`),
+          fetch(`/api/sodex/account/${address}/api-keys${qs}`),
         ]);
 
       const balancesJson = balancesResponse.ok ? await balancesResponse.json() : { balances: [] };
       const ordersJson = ordersResponse.ok ? await ordersResponse.json() : { orders: [] };
-      const stateJson = stateResponse.ok ? await stateResponse.json() : { state: undefined };
+      const stateJson = stateResponse.ok
+        ? await stateResponse.json()
+        : { state: undefined, onboarded: false };
       const apiKeysJson = apiKeysResponse.ok ? await apiKeysResponse.json() : { apiKeys: [] };
 
       const apiKeyName = findWalletApiKeyName(address, apiKeysJson.apiKeys ?? []);
+      const accountId =
+        typeof stateJson.state?.accountId === "number" && stateJson.state.accountId > 0
+          ? stateJson.state.accountId
+          : undefined;
 
       setAccountSnapshot({
         balances: balancesJson.balances ?? [],
         orders: ordersJson.orders ?? [],
-        accountId: stateJson.state?.accountId,
+        accountId,
         apiKeyName,
+        onboarded: stateJson.onboarded === true && Boolean(accountId),
+        onboardingUrl:
+          typeof stateJson.onboardingUrl === "string"
+            ? stateJson.onboardingUrl
+            : sodexOnboardingUrl(network),
       });
     } finally {
       setLoadingAccount(false);
     }
-  }, [address]);
+  }, [address, executionReadiness.network]);
 
   useEffect(() => {
     if (address) {
@@ -328,7 +339,9 @@ export function SodexTradingPanel({
     } finally {
       setPollingFills(false);
       try {
-        const ordersResponse = await fetch(`/api/sodex/account/${address}/orders`);
+        const ordersResponse = await fetch(
+          `/api/sodex/account/${address}/orders?network=${encodeURIComponent(executionReadiness.network)}`,
+        );
         const ordersJson = ordersResponse.ok
           ? await ordersResponse.json()
           : { orders: [] };
@@ -436,25 +449,32 @@ export function SodexTradingPanel({
 
       let accountId = accountSnapshot?.accountId;
       let apiKeyName = accountSnapshot?.apiKeyName;
+      const networkQs = `?network=${encodeURIComponent(executionReadiness.network)}`;
 
       if (!accountId || !apiKeyName) {
         const [stateResponse, apiKeysResponse] = await Promise.all([
-          fetch(`/api/sodex/account/${address}/state`),
-          fetch(`/api/sodex/account/${address}/api-keys`),
+          fetch(`/api/sodex/account/${address}/state${networkQs}`),
+          fetch(`/api/sodex/account/${address}/api-keys${networkQs}`),
         ]);
 
         const stateJson = stateResponse.ok ? await stateResponse.json() : {};
         const apiKeysJson = apiKeysResponse.ok ? await apiKeysResponse.json() : { apiKeys: [] };
 
-        accountId = stateJson.state?.accountId;
+        accountId =
+          typeof stateJson.state?.accountId === "number" && stateJson.state.accountId > 0
+            ? stateJson.state.accountId
+            : undefined;
         apiKeyName = findWalletApiKeyName(address, apiKeysJson.apiKeys ?? []);
       }
 
       if (!accountId) {
+        const url = sodexOnboardingUrl(executionReadiness.network);
         setTradeResult({
           ok: false,
           message:
-            "Could not resolve your SoDEX account ID. Open testnet SoDEX once with this wallet, then refresh.",
+            executionReadiness.network === "mainnet"
+              ? `No SoDEX mainnet account for this wallet yet. Connect once at ${url}, then click Load balance / refresh here.`
+              : `No SoDEX testnet account for this wallet yet. Open ${url}, connect this wallet, claim faucet, transfer to Spot, then refresh here.`,
         });
         return;
       }
@@ -556,7 +576,7 @@ export function SodexTradingPanel({
       setTradePlan(prepared.plan);
 
       if (prepared.plan.orders.length === 0) {
-        setPreviewError("No tradable legs are ready. Check readiness below or adjust the basket.");
+        setPreviewError("No tradable legs are ready. Check Market legs or adjust size.");
         return;
       }
 
@@ -607,17 +627,25 @@ export function SodexTradingPanel({
       }
 
       // Re-fetch credentials after refresh
+      const networkQs = `?network=${encodeURIComponent(executionReadiness.network)}`;
       const [stateResponse, apiKeysResponse] = await Promise.all([
-        fetch(`/api/sodex/account/${address}/state`),
-        fetch(`/api/sodex/account/${address}/api-keys`),
+        fetch(`/api/sodex/account/${address}/state${networkQs}`),
+        fetch(`/api/sodex/account/${address}/api-keys${networkQs}`),
       ]);
       const stateJson = stateResponse.ok ? await stateResponse.json() : {};
       const apiKeysJson = apiKeysResponse.ok ? await apiKeysResponse.json() : { apiKeys: [] };
-      accountId = stateJson.state?.accountId ?? accountId;
+      accountId =
+        typeof stateJson.state?.accountId === "number" && stateJson.state.accountId > 0
+          ? stateJson.state.accountId
+          : accountId;
       apiKeyName = findWalletApiKeyName(address, apiKeysJson.apiKeys ?? []) ?? apiKeyName;
 
       if (!accountId || !apiKeyName) {
-        setPreviewError("Missing SoDEX account or API key for cancel.");
+        setPreviewError(
+          !accountId
+            ? `Missing SoDEX account — onboard at ${sodexOnboardingUrl(executionReadiness.network)} then refresh.`
+            : "Missing SoDEX API key for cancel.",
+        );
         return;
       }
 
@@ -692,75 +720,66 @@ export function SodexTradingPanel({
 
   return (
     <>
-      <div className="rounded-lg bg-card">
-        <div className="border-b border-border px-4 py-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Wallet className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold">Trade on SoDEX</span>
-            <SodexNetworkBadge network={executionReadiness.network} />
-            <Badge variant="muted">Wallet sign</Badge>
+      <div className="rounded-lg border border-border bg-card">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="rounded bg-positive/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-positive">
+              Buy
+            </span>
+            <h2 className="text-sm font-semibold text-foreground">Basket</h2>
           </div>
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            Preview limit orders, confirm in a dialog, then sign each leg on{" "}
-            {executionReadiness.network === "mainnet" ? "ValueChain mainnet" : "ValueChain testnet"}.
-            SoNarr never holds your keys.
-          </p>
-        </div>
-
-        <div className="space-y-3 p-4">
-          <div className="rounded-md border border-border/80 bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
-            <div className="flex items-start gap-2">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <p>{executionReadiness.summary}</p>
-            </div>
-            {skippedReadinessLegs.length > 0 ? (
-              <p className="mt-2 pl-6">
-                Unmapped on SoDEX:{" "}
-                {skippedReadinessLegs.map((leg) => leg.asset).join(", ")}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {isConnected && address ? (
-              <>
-                <Badge variant="outline">{`${address.slice(0, 6)}…${address.slice(-4)}`}</Badge>
-                {usdcBalance ? (
-                  <Badge variant="positive">
-                    {usdcBalance.available ?? usdcBalance.total ?? 0} USDC
-                  </Badge>
-                ) : null}
-                <Button variant="outline" size="sm" onClick={() => setActiveDialog("disconnect")}>
-                  Disconnect
-                </Button>
-                <Button variant="ghost" size="sm" onClick={refreshAccount} disabled={loadingAccount}>
-                  Refresh
-                </Button>
-                {!onSodexChain ? (
-                  <Badge variant="outline">Switch to {sodexChain.name} to sign</Badge>
-                ) : null}
-              </>
-            ) : (
-              <Button
-                size="sm"
-                disabled={!connector || isConnecting}
-                onClick={() => setActiveDialog("connect")}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            {isConnected && usdcBalance ? (
+              <button
+                type="button"
+                onClick={refreshAccount}
+                disabled={loadingAccount}
+                className="tabular-nums transition hover:text-foreground disabled:opacity-50"
+                title="Refresh balances"
               >
-                {isConnecting ? "Connecting…" : "Connect wallet"}
-              </Button>
+                {usdcBalance.available ?? usdcBalance.total ?? 0} USDC
+              </button>
+            ) : isConnected ? (
+              <button
+                type="button"
+                onClick={refreshAccount}
+                disabled={loadingAccount}
+                className="transition hover:text-foreground disabled:opacity-50"
+              >
+                {loadingAccount ? "Loading…" : "Load balance"}
+              </button>
+            ) : (
+              <span>Wallet offline</span>
             )}
           </div>
+        </div>
 
-          {accountSnapshot?.balances.length ? (
-            <div className="divide-y divide-border rounded-md bg-muted/40 text-sm">
-              {accountSnapshot.balances.slice(0, 4).map((balance) => (
-                <div key={balance.coin} className="flex justify-between px-3 py-2">
-                  <span className="text-muted-foreground">{balance.coin}</span>
-                  <span className="tabular-nums font-medium">
-                    {balance.available ?? balance.total ?? 0}
-                  </span>
-                </div>
-              ))}
+        <div className="space-y-4 p-4">
+          {isConnected && accountSnapshot && !accountSnapshot.onboarded ? (
+            <div className="rounded-md border border-chart-4/30 bg-chart-4/10 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
+              <p className="font-medium text-foreground">SoDEX account not found on {executionReadiness.network}</p>
+              <p className="mt-1">
+                Connect this wallet on SoDEX once (faucet → transfer to Spot on testnet), then refresh
+                here. Account ID is created by SoDEX, not by SoNarr.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <a
+                  href={accountSnapshot.onboardingUrl ?? sodexOnboardingUrl(executionReadiness.network)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary underline-offset-2 hover:underline"
+                >
+                  Open SoDEX {executionReadiness.network}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => void refreshAccount()}
+                  disabled={loadingAccount}
+                  className="text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+                >
+                  {loadingAccount ? "Refreshing…" : "I onboarded — refresh"}
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -772,13 +791,39 @@ export function SodexTradingPanel({
             availableUsdc={usdcBalance?.available ?? usdcBalance?.total}
           />
 
-          {tradePlan ? (
-            <BasketOrderPlanTable
-              plan={tradePlan}
-              totalNotionalUsd={basketNotionalUsd}
-              weightedAssets={weightedAssets}
-            />
-          ) : null}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Orders
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={loadingTrade}
+                onClick={runPreview}
+                className="h-7 px-2 text-xs"
+              >
+                {loadingTrade && !submittingMessage && !tradePlan ? "Building…" : "Refresh"}
+              </Button>
+            </div>
+
+            {tradePlan ? (
+              <BasketOrderPlanTable
+                plan={tradePlan}
+                totalNotionalUsd={basketNotionalUsd}
+                weightedAssets={weightedAssets}
+              />
+            ) : (
+              <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-6 text-center text-xs text-muted-foreground">
+                {tradableLegs.length} routable leg{tradableLegs.length === 1 ? "" : "s"}
+                {skippedReadinessLegs.length > 0
+                  ? ` · ${skippedReadinessLegs.length} skipped`
+                  : ""}
+                . Tap Buy to review limits, or Refresh to preview first.
+              </div>
+            )}
+          </div>
 
           {previewError ? (
             <div className="flex items-start gap-2 rounded-md border border-negative/30 bg-negative/10 px-3 py-2 text-xs text-foreground">
@@ -787,41 +832,52 @@ export function SodexTradingPanel({
             </div>
           ) : null}
 
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" disabled={loadingTrade} onClick={runPreview}>
-              {loadingTrade && !submittingMessage ? "Loading…" : "Preview orders"}
-            </Button>
+          <div className="space-y-2">
             <Button
-              size="sm"
+              type="button"
+              className="h-11 w-full text-sm font-semibold"
               disabled={Boolean(submitDisabledReason) || loadingTrade}
               onClick={() => void openSubmitDialog()}
             >
-              Sign & submit
+              {loadingTrade && activeDialog !== "submit" && !submittingMessage
+                ? "Preparing…"
+                : executionReadiness.network === "mainnet"
+                  ? "Buy basket · Mainnet"
+                  : "Buy basket"}
             </Button>
-            {failedLegAssets.size > 0 ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loadingTrade || Boolean(submitDisabledReason)}
-                onClick={() => void runWalletSubmit({ failedOnly: true })}
-              >
-                Retry failed legs ({failedLegAssets.size})
-              </Button>
-            ) : null}
-            {cancelableOrders.length > 0 ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loadingTrade || !isConnected}
-                onClick={() => setActiveDialog("cancel")}
-              >
-                Cancel open ({cancelableOrders.length})
-              </Button>
-            ) : null}
+
+            {submitDisabledReason ? (
+              <p className="text-center text-[11px] text-muted-foreground">{submitDisabledReason}</p>
+            ) : (
+              <p className="text-center text-[11px] text-muted-foreground">
+                Reviews limit orders, then asks for one wallet signature per leg
+              </p>
+            )}
           </div>
 
-          {submitDisabledReason ? (
-            <p className="text-xs text-muted-foreground">{submitDisabledReason}</p>
+          {failedLegAssets.size > 0 || cancelableOrders.length > 0 ? (
+            <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+              {failedLegAssets.size > 0 ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingTrade || Boolean(submitDisabledReason)}
+                  onClick={() => void runWalletSubmit({ failedOnly: true })}
+                >
+                  Retry failed ({failedLegAssets.size})
+                </Button>
+              ) : null}
+              {cancelableOrders.length > 0 ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingTrade || !isConnected}
+                  onClick={() => setActiveDialog("cancel")}
+                >
+                  Cancel open ({cancelableOrders.length})
+                </Button>
+              ) : null}
+            </div>
           ) : null}
 
           <BasketTradeStatus
@@ -834,33 +890,6 @@ export function SodexTradingPanel({
       </div>
 
       <ConfirmDialog
-        open={activeDialog === "connect"}
-        onOpenChange={(open) => setActiveDialog(open ? "connect" : null)}
-        title="Connect wallet for SoDEX?"
-        description={`SoNarr will connect your wallet and target ${sodexChain.name} (chain ${chainId}). You will sign orders yourself; keys never leave your wallet.`}
-        confirmLabel="Connect wallet"
-        onConfirm={() => {
-          if (connector) {
-            connect({ connector, chainId });
-          }
-          setActiveDialog(null);
-        }}
-      />
-
-      <ConfirmDialog
-        open={activeDialog === "disconnect"}
-        onOpenChange={(open) => setActiveDialog(open ? "disconnect" : null)}
-        title="Disconnect wallet?"
-        description="You can reconnect anytime. Open orders on SoDEX are not canceled by disconnecting."
-        confirmLabel="Disconnect"
-        confirmVariant="destructive"
-        onConfirm={() => {
-          disconnect();
-          setActiveDialog(null);
-        }}
-      />
-
-      <ConfirmDialog
         open={activeDialog === "notional"}
         onOpenChange={(open) => {
           if (!open) {
@@ -869,7 +898,7 @@ export function SodexTradingPanel({
           setActiveDialog(open ? "notional" : null);
         }}
         title="Change basket size?"
-        description="Updating the basket size clears your current preview. You will need to preview again before submitting."
+        description="Updating size clears the current order preview."
         confirmLabel="Update size"
         onConfirm={confirmNotionalChange}
       />
@@ -879,40 +908,27 @@ export function SodexTradingPanel({
         onOpenChange={(open) => setActiveDialog(open ? "submit" : null)}
         title={
           executionReadiness.network === "mainnet"
-            ? "Submit live limit buys on SoDEX mainnet?"
-            : "Submit live limit buys to SoDEX?"
+            ? "Confirm mainnet basket buy?"
+            : "Confirm basket buy?"
         }
         description={
           executionReadiness.network === "mainnet"
-            ? `This places real GTC limit orders on SoDEX mainnet using ~$${basketNotionalUsd.toLocaleString()} USDC. You will approve ${tradePlan?.orders.length ?? 0} separate wallet signatures. Double-check legs and size before continuing.`
-            : `This places real GTC limit orders on SoDEX testnet using ~$${basketNotionalUsd.toLocaleString()} vUSDC. You will approve ${tradePlan?.orders.length ?? 0} separate wallet signatures.`
+            ? `Places real GTC limit buys on SoDEX mainnet (~$${basketNotionalUsd.toLocaleString()} USDC). You will approve ${tradePlan?.orders.length ?? 0} wallet signature(s).`
+            : `Places GTC limit buys on SoDEX testnet (~$${basketNotionalUsd.toLocaleString()} vUSDC). You will approve ${tradePlan?.orders.length ?? 0} wallet signature(s).`
         }
         confirmLabel={
-          executionReadiness.network === "mainnet" ? "Sign mainnet orders" : "Sign & submit"
+          executionReadiness.network === "mainnet" ? "Sign mainnet buys" : "Sign & buy"
         }
         confirmVariant={executionReadiness.network === "mainnet" ? "destructive" : "default"}
         loading={loadingTrade}
         onConfirm={() => void runWalletSubmit()}
       >
         {tradePlan ? (
-          <div className="space-y-3 text-xs">
-            <div className="rounded-md border border-chart-4/30 bg-chart-4/10 px-3 py-2 text-muted-foreground">
-              <p className="font-medium text-foreground">Before you sign</p>
-              <ul className="mt-2 list-inside list-disc space-y-1 leading-5">
-                <li>Stay on {sodexChain.name} for every signature popup.</li>
-                <li>
-                  Testnet markets may enter cancel-only mode during maintenance — failed legs can be
-                  retried later.
-                </li>
-                <li>Limit prices use each market&apos;s last trade, not the orderbook ask.</li>
-              </ul>
-            </div>
-            <BasketOrderPlanTable
-              plan={tradePlan}
-              totalNotionalUsd={basketNotionalUsd}
-              weightedAssets={weightedAssets}
-            />
-          </div>
+          <BasketOrderPlanTable
+            plan={tradePlan}
+            totalNotionalUsd={basketNotionalUsd}
+            weightedAssets={weightedAssets}
+          />
         ) : null}
       </ConfirmDialog>
 
@@ -920,7 +936,7 @@ export function SodexTradingPanel({
         open={activeDialog === "cancel"}
         onOpenChange={(open) => setActiveDialog(open ? "cancel" : null)}
         title="Cancel open SoDEX orders?"
-        description={`This signs a batch cancel for ${cancelableOrders.length} open order(s) on ${executionReadiness.network}. Filled size is kept; only residual open quantity is canceled.`}
+        description={`Signs a batch cancel for ${cancelableOrders.length} open order(s) on ${executionReadiness.network}. Filled size is kept.`}
         confirmLabel="Sign cancels"
         confirmVariant="destructive"
         loading={loadingTrade}
