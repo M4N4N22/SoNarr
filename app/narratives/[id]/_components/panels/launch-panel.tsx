@@ -61,54 +61,49 @@ export function LaunchPanel({ data }: { data: NarrativeWorkspaceProps }) {
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-        <div className="space-y-3">
-          <SodexTradingPanel
+      <div className="rounded-lg border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+          <h2 className="text-sm font-semibold text-foreground">Market</h2>
+          {loadingReadiness ? (
+            <span className="text-[11px] text-muted-foreground">Updating…</span>
+          ) : (
+            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              {executionReadiness.network}
+            </span>
+          )}
+        </div>
+        <div className="p-3">
+          <ExecutionPreviewSection
             executionReadiness={executionReadiness}
-            weightedAssets={data.weightedAssets}
-            narrativeId={data.narrative.id}
-            narrativeTitle={`${data.narrative.label} Momentum`}
-            basketNotionalUsd={basketNotionalUsd}
-            onBasketNotionalChange={setBasketNotionalUsd}
-            loadingReadiness={loadingReadiness}
-            onTradeRecorded={() => setJournalRefreshToken((value) => value + 1)}
-          />
-          <TradeJournalStrip
-            narrativeId={data.narrative.id}
-            refreshToken={journalRefreshToken}
+            liquidityContext={data.liquidityContext}
+            embedded
+            variant="compact"
+            showLegsToggle={false}
           />
         </div>
-
-        <aside className="space-y-3">
-          <div className="rounded-lg border border-border bg-card">
-            <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-              <h2 className="text-sm font-semibold text-foreground">Market</h2>
-              {loadingReadiness ? (
-                <span className="text-[11px] text-muted-foreground">Updating…</span>
-              ) : (
-                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  {executionReadiness.network}
-                </span>
-              )}
-            </div>
-            <div className="p-3">
-              <ExecutionPreviewSection
-                executionReadiness={executionReadiness}
-                liquidityContext={data.liquidityContext}
-                embedded
-                variant="compact"
-              />
-            </div>
-          </div>
-
-          {data.lifecycle.validation?.rebalanceSuggested ? (
-            <div className="rounded-lg border border-chart-4/30 bg-chart-4/10 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
-              Conviction moved ~{data.lifecycle.validation.scoreDeltaPct?.toFixed(1)}% — review
-              weights on Lifecycle before sizing up.
-            </div>
-          ) : null}
-        </aside>
       </div>
+
+      {data.lifecycle.validation?.rebalanceSuggested ? (
+        <div className="rounded-lg border border-chart-4/30 bg-chart-4/10 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
+          Conviction moved ~{data.lifecycle.validation.scoreDeltaPct?.toFixed(1)}% — review
+          weights on Lifecycle before sizing up.
+        </div>
+      ) : null}
+
+      <SodexTradingPanel
+        executionReadiness={executionReadiness}
+        weightedAssets={data.weightedAssets}
+        narrativeId={data.narrative.id}
+        narrativeTitle={`${data.narrative.label} Momentum`}
+        basketNotionalUsd={basketNotionalUsd}
+        onBasketNotionalChange={setBasketNotionalUsd}
+        loadingReadiness={loadingReadiness}
+        onTradeRecorded={() => setJournalRefreshToken((value) => value + 1)}
+      />
+      <TradeJournalStrip
+        narrativeId={data.narrative.id}
+        refreshToken={journalRefreshToken}
+      />
 
       <div className="space-y-2">
         <p className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">

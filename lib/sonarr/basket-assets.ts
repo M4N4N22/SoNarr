@@ -202,6 +202,72 @@ function buildReason(evidenceCount: number, sources: AssetExtractionSource[]) {
   return parts.join(" · ") || "Included in basket";
 }
 
+/**
+ * Prefer SoDEX-mapped legs when filling the executable top-N.
+ * CEX turnover remains a tie-breaker, not a license to drop coverage.
+ */
+function selectPreferringRoutableCoverage(
+  ranked: BasketAssetProvenance[],
+  max: number,
+): BasketAssetProvenance[] {
+  if (ranked.length <= max) {
+    return ranked;
+  }
+
+  const hasRoutabilitySignal = ranked.some(
+    (leg) => leg.routable === true || leg.routable === false,
+  );
+  if (!hasRoutabilitySignal) {
+    return ranked.slice(0, max);
+  }
+
+  const selected = ranked.slice(0, max);
+  const pool = ranked.slice(max);
+
+  while (true) {
+    const weakestUnmapped = selected
+      .map((leg, index) => ({ leg, index }))
+      .filter(({ leg }) => leg.routable === false)
+      .sort((a, b) => a.leg.rankScore - b.leg.rankScore || a.leg.evidenceCount - b.leg.evidenceCount)[0];
+
+    let bestRoutablePoolIndex = -1;
+    let bestRoutableScore = -1;
+    for (let i = 0; i < pool.length; i += 1) {
+      const candidate = pool[i];
+      if (candidate?.routable !== true) {
+        continue;
+      }
+      if (
+        candidate.rankScore > bestRoutableScore ||
+        (candidate.rankScore === bestRoutableScore &&
+          candidate.evidenceCount > (pool[bestRoutablePoolIndex]?.evidenceCount ?? -1))
+      ) {
+        bestRoutableScore = candidate.rankScore;
+        bestRoutablePoolIndex = i;
+      }
+    }
+
+    if (!weakestUnmapped || bestRoutablePoolIndex < 0) {
+      break;
+    }
+
+    const promoted = pool.splice(bestRoutablePoolIndex, 1)[0];
+    if (!promoted) {
+      break;
+    }
+
+    selected[weakestUnmapped.index] = {
+      ...promoted,
+      reason: promoted.reason.includes("promoted for SoDEX coverage")
+        ? promoted.reason
+        : `${promoted.reason} · promoted for SoDEX coverage`,
+    };
+  }
+
+  selected.sort((a, b) => b.rankScore - a.rankScore || b.evidenceCount - a.evidenceCount);
+  return selected;
+}
+
 export function rankBasketAssets(
   candidates: BasketAssetProvenance[],
   options?: {
@@ -228,19 +294,21 @@ export function rankBasketAssets(
 
     let liquidityHint: string | undefined;
     if (typeof turnover === "number" && turnover > 0) {
-      const liquidityBoost = Math.min(25, Math.log10(turnover + 1) * 4);
+      // Cap below SoDEX unmapped penalty so CEX volume cannot dominate routing.
+      const liquidityBoost = Math.min(16, Math.log10(turnover + 1) * 3);
       rankScore = Math.min(100, rankScore + liquidityBoost);
       liquidityHint = `CEX turnover signal ~$${Math.round(turnover).toLocaleString()}`;
     }
 
     if (isRoutable === true) {
-      rankScore = Math.min(100, rankScore + 18);
+      rankScore = Math.min(100, rankScore + 28);
     } else if (isRoutable === false) {
-      rankScore = Math.max(0, rankScore - 14);
+      rankScore = Math.max(0, rankScore - 38);
     }
 
-    // Prefer evidence-backed legs over pure testnet proxy fillers when peers exist.
-    if (testnetOnly && hasEvidencePeers) {
+    // Demote pure testnet fillers only when they are not SoDEX-routable.
+    const demoteTestnetOnly = testnetOnly && hasEvidencePeers && isRoutable !== true;
+    if (demoteTestnetOnly) {
       rankScore = Math.max(0, rankScore - 20);
     }
 
@@ -254,13 +322,13 @@ export function rankBasketAssets(
         (isRoutable === true ? " · SoDEX routable" : "") +
         (isRoutable === false ? " · SoDEX unmapped" : "") +
         (liquidityHint ? ` · ${liquidityHint}` : "") +
-        (testnetOnly && hasEvidencePeers ? " · demoted vs evidence peers" : ""),
+        (demoteTestnetOnly ? " · demoted vs evidence peers" : ""),
     };
   });
 
   ranked.sort((a, b) => b.rankScore - a.rankScore || b.evidenceCount - a.evidenceCount);
 
-  return ranked.slice(0, max);
+  return selectPreferringRoutableCoverage(ranked, max);
 }
 
 export function resolveNarrativeBasketAssets(
@@ -321,14 +389,14 @@ export function enrichSelectedBasketProvenance(
     let liquidityHint: string | undefined;
 
     if (typeof turnover === "number" && turnover > 0) {
-      rankScore = Math.min(100, rankScore + Math.min(25, Math.log10(turnover + 1) * 4));
+      rankScore = Math.min(100, rankScore + Math.min(16, Math.log10(turnover + 1) * 3));
       liquidityHint = `CEX turnover signal ~$${Math.round(turnover).toLocaleString()}`;
     }
 
     if (isRoutable === true) {
-      rankScore = Math.min(100, rankScore + 12);
+      rankScore = Math.min(100, rankScore + 20);
     } else if (isRoutable === false) {
-      rankScore = Math.max(0, rankScore - 8);
+      rankScore = Math.max(0, rankScore - 24);
     }
 
     return {

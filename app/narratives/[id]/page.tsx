@@ -185,8 +185,8 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
     listedSymbols,
   });
 
-  // Probe a wider evidence-ranked set, then re-rank with CEX turnover + SoDEX symbol match
-  // before locking the top-N basket (so provenance matches selection).
+  // Probe a wider evidence-ranked set for CEX turnover, then re-rank the original
+  // candidates with turnover + SoDEX symbol match (never re-score already-mutated rows).
   const probeProvenance = rankBasketAssets(candidates, { max: 12 });
   const probeAssets =
     probeProvenance.length > 0
@@ -204,16 +204,19 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
       asset.totalTurnover24h ?? 0,
     ]),
   );
+  // Symbol match is cheap once symbols are loaded — score every candidate, not only the probe set.
   const probeRoutable = Object.fromEntries(
-    probeAssets.map((asset) => [
-      asset.toUpperCase(),
-      Boolean(resolveSpotSymbol(asset, spotSymbolsResult.data)),
-    ]),
+    (candidates.length > 0 ? candidates.map((item) => item.asset) : probeAssets).map(
+      (asset) => [
+        asset.toUpperCase(),
+        Boolean(resolveSpotSymbol(asset, spotSymbolsResult.data)),
+      ],
+    ),
   );
 
   const selectedProvenance = rankBasketAssets(
-    probeProvenance.length > 0
-      ? probeProvenance
+    candidates.length > 0
+      ? candidates
       : probeAssets.map((asset) => ({
           asset,
           evidenceCount: 0,
@@ -265,6 +268,14 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
   ]);
   const relevantIndexTickers = getRelevantIndexTickers(assets, indexConstituents.data);
   const indexSnapshotsResult = await getIndexMarketSnapshots(relevantIndexTickers);
+  const assetSet = new Set(assets.map((asset) => asset.toUpperCase()));
+  const indexOverlaps = indexConstituents.data
+    .filter((constituent) => assetSet.has(constituent.symbol.toUpperCase()))
+    .map((constituent) => ({
+      asset: constituent.symbol.toUpperCase(),
+      indexTicker: constituent.indexTicker,
+      weight: constituent.weight,
+    }));
   const featuredForNarrative = filterFeaturedNewsForNarrative(
     featuredNewsResult.data,
     narrative,
@@ -459,6 +470,8 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
           etfSnapshot: etfSnapshotResult.data,
           macroEvents: macroEventsResult.data,
         }}
+        relevantIndexTickers={relevantIndexTickers}
+        indexOverlaps={indexOverlaps}
       />
       <SiteFooter compact />
     </main>

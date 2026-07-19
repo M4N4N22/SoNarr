@@ -38,13 +38,14 @@ Launch submit
 - Lifecycle/trade-journal persistence uses Upstash when `UPSTASH_REDIS_REST_*` is set; otherwise local filesystem (ephemeral on many hosts) plus a browser localStorage mirror.
 - Forward-return samples strengthen as snapshots accumulate; thin history is labeled partial.
 - When all snapshots are &lt;24h old, forward windows may use **bar-relative illustrative anchors** — UI badges this and never marks those reads as `live` stored-snapshot proof.
+- Fill polling watches SoDEX **open orders**. Filled/cancelled legs often drop off that list — SoNarr treats disappearance (after a short grace) as left-book / closed, not as proof of average fill price.
 - Decision assist never invents fills or prices — same evidence-bound rule as Wave 2 briefs.
 - Still research tooling, not financial advice; no auto-trading without wallet confirmation.
 - Keep public demos on testnet; use a dedicated deploy + funded wallet before mainnet.
 
 ## Demo path
 
-1. Open a narrative → **Lifecycle** tab (stage, trail, forward returns).
-2. **Index** tab → leg provenance.
-3. **Launch** → preview → sign & submit → watch fill polling + **Trade journal** strip; retry failed legs if needed.
+1. Open a narrative → **Evidence** (signals, klines, liquidity) → **Index** (package legs + SSI overlap).
+2. **Lifecycle** tab (stage, trail, forward returns; note illustrative vs stored anchors).
+3. **Launch** → Market strip → basket contents → size → Buy → watch poll + **Trade journal**; retry failed legs if needed.
 4. Generate **decision assist** on Lifecycle (cites stage + readiness).

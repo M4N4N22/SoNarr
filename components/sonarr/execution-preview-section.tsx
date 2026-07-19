@@ -32,6 +32,7 @@ export function ExecutionPreviewSection({
   liquidityContext,
   embedded = false,
   variant = "full",
+  showLegsToggle = true,
 }: {
   executionReadiness?: BasketExecutionReadiness;
   liquidityContext?: BasketLiquidityContext;
@@ -39,19 +40,41 @@ export function ExecutionPreviewSection({
   embedded?: boolean;
   /** compact = launch desk strip; full = research-style block */
   variant?: "full" | "compact";
+  /** Launch keeps legs on the Buy ticket — hide duplicate route table there. */
+  showLegsToggle?: boolean;
 }) {
   const [showRoute, setShowRoute] = useState(false);
   const hasLiveData = Boolean(executionReadiness && executionReadiness.mode !== "unavailable");
   const hasLiquidityData = Boolean(liquidityContext && liquidityContext.mode !== "unavailable");
   const compact = variant === "compact";
+  const canShowLegs = showLegsToggle && hasLiveData;
 
   const slippageLabel =
     executionReadiness?.weightedSlippagePct !== undefined
       ? formatPct(executionReadiness.weightedSlippagePct)
-      : "—";
+      : hasLiveData && executionReadiness
+        ? formatPct(
+            (() => {
+              const priced = executionReadiness.legs.filter(
+                (leg) => leg.tradable && typeof leg.slippagePct === "number",
+              );
+              if (priced.length === 0) {
+                return 0;
+              }
+              const weightSum = priced.reduce((sum, leg) => sum + leg.weight, 0);
+              if (weightSum <= 0) {
+                return 0;
+              }
+              return (
+                priced.reduce((sum, leg) => sum + (leg.slippagePct ?? 0) * leg.weight, 0) /
+                weightSum
+              );
+            })(),
+          )
+        : "—";
 
   const routeTable =
-    showRoute && hasLiveData && executionReadiness ? (
+    showLegsToggle && showRoute && hasLiveData && executionReadiness ? (
       <div className="overflow-x-auto rounded-md border border-border bg-muted/20">
         <table className="min-w-full text-left text-xs">
           <thead className="text-muted-foreground">
@@ -120,25 +143,35 @@ export function ExecutionPreviewSection({
         <p className="text-[11px] leading-4 text-muted-foreground">
           {executionReadiness.totalLegs - executionReadiness.tradableCount} leg
           {executionReadiness.totalLegs - executionReadiness.tradableCount === 1 ? "" : "s"} unmapped —
-          skipped at submit.
+          skipped at submit. Leg list is on the Buy ticket below.
         </p>
-      ) : null}
+      ) : showLegsToggle ? null : (
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          Depth and slip from SoDEX books. Basket legs and weights are on the Buy ticket below.
+        </p>
+      )}
 
-      <div className="flex items-center justify-between gap-2">
+      {canShowLegs ? (
+        <div className="flex items-center justify-between gap-2">
+          <Badge variant={hasLiveData ? "positive" : "muted"}>
+            {hasLiveData ? "Live book" : "Pending"}
+          </Badge>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!hasLiveData}
+            onClick={() => setShowRoute((value) => !value)}
+            className="h-7 px-2 text-xs"
+          >
+            {showRoute ? "Hide legs" : "View legs"}
+          </Button>
+        </div>
+      ) : (
         <Badge variant={hasLiveData ? "positive" : "muted"}>
           {hasLiveData ? "Live book" : "Pending"}
         </Badge>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={!hasLiveData}
-          onClick={() => setShowRoute((value) => !value)}
-          className="h-7 px-2 text-xs"
-        >
-          {showRoute ? "Hide legs" : "View legs"}
-        </Button>
-      </div>
+      )}
 
       {routeTable}
     </div>

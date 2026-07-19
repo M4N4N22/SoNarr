@@ -336,8 +336,9 @@ export function SodexTradingPanel({
     const watchedIds = new Set(
       (result.legResults ?? [])
         .filter((leg) => leg.ok && leg.clOrdID)
-        .map((leg) => leg.clOrdID),
+        .map((leg) => leg.clOrdID as string),
     );
+    const seenIds = new Set<string>();
 
     function isTerminalStatus(status?: string) {
       const value = (status ?? "").toLowerCase();
@@ -358,11 +359,24 @@ export function SodexTradingPanel({
         value.includes("cancel") ||
         value.includes("reject") ||
         value.includes("expire") ||
-        value.includes("done")
+        value.includes("done") ||
+        value.includes("closed")
       );
     }
 
-    function allWatchedTerminal(orders: AccountSnapshot["orders"]) {
+    function isStillOpen(status?: string) {
+      const value = (status ?? "").toLowerCase();
+      return (
+        value.includes("open") ||
+        value.includes("new") ||
+        value.includes("live") ||
+        value.includes("partial") ||
+        value.includes("pending")
+      );
+    }
+
+    /** SoDEX open-orders lists drop filled/cancelled rows — absence after grace = left the book. */
+    function allWatchedResolved(orders: AccountSnapshot["orders"], attempt: number) {
       if (watchedIds.size === 0) {
         return false;
       }
@@ -371,25 +385,56 @@ export function SodexTradingPanel({
           .filter((order) => order.clOrdId)
           .map((order) => [order.clOrdId!, order]),
       );
-      let seen = 0;
+
       for (const id of watchedIds) {
         const order = byClOrdId.get(id);
         if (!order) {
+          if (attempt >= 2 || seenIds.has(id)) {
+            continue;
+          }
           return false;
         }
-        seen += 1;
-        if (!isTerminalStatus(order.status)) {
+        seenIds.add(id);
+        if (isStillOpen(order.status) && !isTerminalStatus(order.status)) {
           return false;
         }
       }
-      return seen === watchedIds.size;
+      return true;
+    }
+
+    function snapshotFills(orders: AccountSnapshot["orders"]): AccountSnapshot["orders"] {
+      const byClOrdId = new Map(
+        orders
+          .filter((order) => order.clOrdId)
+          .map((order) => [order.clOrdId!, order]),
+      );
+      const fills: AccountSnapshot["orders"] = [];
+
+      for (const id of watchedIds) {
+        const live = byClOrdId.get(id);
+        if (live) {
+          fills.push(live);
+          continue;
+        }
+        const leg = (result.legResults ?? []).find((item) => item.clOrdID === id);
+        fills.push({
+          clOrdId: id,
+          symbol: leg?.displayName ?? leg?.asset,
+          status: seenIds.has(id) || watchedIds.has(id) ? "left_open_book" : undefined,
+          side: "BUY",
+        });
+      }
+
+      return fills;
     }
 
     setPollingFills(true);
     let latestOrders: AccountSnapshot["orders"] = [];
+    let fillSnapshot: AccountSnapshot["orders"] = [];
     const maxAttempts = 12;
     const startedAt = Date.now();
     const timeoutMs = 45_000;
+    let resolvedEarly = false;
 
     try {
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -400,16 +445,32 @@ export function SodexTradingPanel({
         const snapshot = await refreshAccount();
         latestOrders = snapshot?.orders ?? [];
 
-        if (allWatchedTerminal(latestOrders)) {
+        if (allWatchedResolved(latestOrders, attempt)) {
+          resolvedEarly = true;
+          fillSnapshot = snapshotFills(latestOrders);
           break;
         }
         if (Date.now() - startedAt >= timeoutMs) {
           break;
         }
       }
+
+      if (!resolvedEarly) {
+        fillSnapshot = snapshotFills(latestOrders);
+      }
     } finally {
       setPollingFills(false);
-      await appendJournal(result, latestOrders);
+      const stillOpen = fillSnapshot.filter((order) => isStillOpen(order.status)).length;
+      const leftBook = fillSnapshot.filter((order) =>
+        (order.status ?? "").toLowerCase().includes("left_open_book"),
+      ).length;
+      const note =
+        stillOpen > 0
+          ? `${summarizeSubmitMessage(result)} · poll timeout with ${stillOpen} still open`
+          : leftBook > 0
+            ? `${summarizeSubmitMessage(result)} · ${leftBook} left open book (filled/cancelled off-list)`
+            : summarizeSubmitMessage(result);
+      await appendJournal({ ...result, message: note }, fillSnapshot);
     }
   }
 
@@ -783,13 +844,21 @@ export function SodexTradingPanel({
     <>
       <div className="rounded-lg border border-border bg-card">
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <span className="rounded bg-positive/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-positive">
-              Buy
-            </span>
-            <h2 className="text-sm font-semibold text-foreground">Basket</h2>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-positive/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-positive">
+                Buy
+              </span>
+              <h2 className="truncate text-sm font-semibold text-foreground">
+                {narrativeTitle || "Basket"}
+              </h2>
+            </div>
+            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+              {weightedAssets.map((leg) => `${leg.asset} ${leg.weight}%`).join(" · ") ||
+                "No legs selected"}
+            </p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
             {isConnected && usdcBalance ? (
               <button
                 type="button"
@@ -844,6 +913,105 @@ export function SodexTradingPanel({
             </div>
           ) : null}
 
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Basket contents
+              </p>
+              <span className="text-[11px] tabular-nums text-muted-foreground">
+                {tradableLegs.length}/{executionReadiness.legs.length || weightedAssets.length}{" "}
+                routable
+              </span>
+            </div>
+            <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
+              {weightedAssets.map((leg, index) => (
+                <div
+                  key={leg.asset}
+                  className="h-full bg-primary/85 first:rounded-l-full last:rounded-r-full"
+                  style={{
+                    width: `${leg.weight}%`,
+                    opacity: 1 - index * 0.1,
+                  }}
+                  title={`${leg.asset} ${leg.weight}%`}
+                />
+              ))}
+            </div>
+            <ul className="divide-y divide-border overflow-hidden rounded-md border border-border">
+              {(executionReadiness.legs.length > 0
+                ? executionReadiness.legs.map((leg) => ({
+                    asset: leg.asset,
+                    weight: leg.weight,
+                    legNotionalUsd: leg.legNotionalUsd,
+                    tradable: leg.tradable,
+                    displayName: leg.displayName,
+                    sodexSymbol: leg.sodexSymbol,
+                    message: leg.message,
+                    slippagePct: leg.slippagePct,
+                  }))
+                : weightedAssets.map((leg) => ({
+                    asset: leg.asset,
+                    weight: leg.weight,
+                    legNotionalUsd: (basketNotionalUsd * leg.weight) / 100,
+                    tradable: false,
+                    displayName: undefined as string | undefined,
+                    sodexSymbol: undefined as string | undefined,
+                    message: "Route pending" as string | undefined,
+                    slippagePct: undefined as number | undefined,
+                  }))
+              ).map((leg) => {
+                const notional =
+                  typeof leg.legNotionalUsd === "number" && leg.legNotionalUsd > 0
+                    ? leg.legNotionalUsd
+                    : (basketNotionalUsd * leg.weight) / 100;
+                const slip = typeof leg.slippagePct === "number" ? leg.slippagePct : undefined;
+                return (
+                  <li
+                    key={leg.asset}
+                    className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-foreground">{leg.asset}</span>
+                        <span className="text-xs tabular-nums text-muted-foreground">
+                          {leg.weight}%
+                        </span>
+                        {leg.tradable ? (
+                          <span className="rounded bg-positive/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-positive">
+                            Buy
+                          </span>
+                        ) : (
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Skip
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                        {leg.displayName ?? leg.sodexSymbol ?? leg.message ?? "SoDEX route"}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-medium tabular-nums text-foreground">
+                        ${Math.round(notional).toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {typeof slip === "number"
+                          ? `slip ${slip > 0 && slip < 0.01 ? "<0.01" : slip.toFixed(2)}%`
+                          : executionReadiness.network === "mainnet"
+                            ? "USDC"
+                            : "vUSDC"}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {skippedReadinessLegs.length > 0 ? (
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                Skipped legs stay in the research basket but are not signed on Buy.
+              </p>
+            ) : null}
+          </div>
+
           <BasketNotionalControl
             network={executionReadiness.network}
             value={basketNotionalUsd}
@@ -855,7 +1023,7 @@ export function SodexTradingPanel({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Orders
+                Limit orders
               </p>
               <Button
                 type="button"
@@ -865,7 +1033,7 @@ export function SodexTradingPanel({
                 onClick={runPreview}
                 className="h-7 px-2 text-xs"
               >
-                {loadingTrade && !submittingMessage && !tradePlan ? "Building…" : "Refresh"}
+                {loadingTrade && !submittingMessage && !tradePlan ? "Building…" : "Refresh preview"}
               </Button>
             </div>
 
@@ -876,12 +1044,16 @@ export function SodexTradingPanel({
                 weightedAssets={weightedAssets}
               />
             ) : (
-              <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-6 text-center text-xs text-muted-foreground">
-                {tradableLegs.length} routable leg{tradableLegs.length === 1 ? "" : "s"}
+              <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-3 text-xs leading-5 text-muted-foreground">
+                Preview prices after you tap Buy or Refresh. Buy signs only the{" "}
+                <span className="font-medium text-foreground">
+                  {tradableLegs.map((leg) => leg.asset).join(", ") || "routable"}
+                </span>{" "}
+                leg{tradableLegs.length === 1 ? "" : "s"}
                 {skippedReadinessLegs.length > 0
-                  ? ` · ${skippedReadinessLegs.length} skipped`
+                  ? ` (${skippedReadinessLegs.map((leg) => leg.asset).join(", ")} skipped)`
                   : ""}
-                . Tap Buy to review limits, or Refresh to preview first.
+                .
               </div>
             )}
           </div>
@@ -910,8 +1082,13 @@ export function SodexTradingPanel({
             {submitDisabledReason ? (
               <p className="text-center text-[11px] text-muted-foreground">{submitDisabledReason}</p>
             ) : (
-              <p className="text-center text-[11px] text-muted-foreground">
-                Reviews limit orders, then asks for one wallet signature per leg
+              <p className="text-center text-[11px] leading-4 text-muted-foreground">
+                Buys{" "}
+                <span className="font-medium text-foreground">
+                  {tradableLegs.map((leg) => `${leg.asset} ${leg.weight}%`).join(" · ") ||
+                    "routable legs"}
+                </span>{" "}
+                · ~${basketNotionalUsd.toLocaleString()} · one signature per leg
               </p>
             )}
           </div>
@@ -974,8 +1151,8 @@ export function SodexTradingPanel({
         }
         description={
           executionReadiness.network === "mainnet"
-            ? `Places real GTC limit buys on SoDEX mainnet (~$${basketNotionalUsd.toLocaleString()} USDC). You will approve ${tradePlan?.orders.length ?? 0} wallet signature(s).`
-            : `Places GTC limit buys on SoDEX testnet (~$${basketNotionalUsd.toLocaleString()} vUSDC). You will approve ${tradePlan?.orders.length ?? 0} wallet signature(s).`
+            ? `Buys ${tradableLegs.map((leg) => `${leg.asset} ${leg.weight}%`).join(", ") || "routable legs"} on SoDEX mainnet (~$${basketNotionalUsd.toLocaleString()} USDC). You will approve ${tradePlan?.orders.length ?? tradableLegs.length} wallet signature(s).`
+            : `Buys ${tradableLegs.map((leg) => `${leg.asset} ${leg.weight}%`).join(", ") || "routable legs"} on SoDEX testnet (~$${basketNotionalUsd.toLocaleString()} vUSDC). You will approve ${tradePlan?.orders.length ?? tradableLegs.length} wallet signature(s).`
         }
         confirmLabel={
           executionReadiness.network === "mainnet" ? "Sign mainnet buys" : "Sign & buy"
