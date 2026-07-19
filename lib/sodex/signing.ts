@@ -117,8 +117,40 @@ export function getBatchNewOrderDigest(
   return hashTypedData(getSodexExchangeTypedData(payloadHash, nonce, chainId));
 }
 
+/**
+ * SoDEX recovers with go-ethereum `SigToPub`, which requires v ∈ {0,1}.
+ * Browser wallets often return EIP-155 style v ∈ {27,28} — that yields
+ * "Invalid recovery ID: bad recovery id" on the gateway.
+ */
+export function normalizeEcdsaSignature(signature: Hex): Hex {
+  const raw = signature.startsWith("0x") ? signature.slice(2) : signature;
+
+  if (raw.length !== 130) {
+    throw new Error(
+      `Unexpected wallet signature length ${raw.length / 2} bytes (expected 65). Stay on ValueChain and approve again.`,
+    );
+  }
+
+  const r = raw.slice(0, 64);
+  const s = raw.slice(64, 128);
+  let v = Number.parseInt(raw.slice(128, 130), 16);
+
+  if (v === 27 || v === 28) {
+    v -= 27;
+  }
+
+  if (v !== 0 && v !== 1) {
+    throw new Error(
+      `Invalid signature recovery id (${v}). Reconnect the wallet on ValueChain Testnet and try again.`,
+    );
+  }
+
+  return (`0x${r}${s}${v.toString(16).padStart(2, "0")}`) as Hex;
+}
+
 export function formatSodexSignature(signature: Hex): Hex {
-  return (`0x01${signature.slice(2)}`) as Hex;
+  const normalized = normalizeEcdsaSignature(signature);
+  return (`0x01${normalized.slice(2)}`) as Hex;
 }
 
 export type BatchCancelOrderItem = {
