@@ -143,6 +143,40 @@ export function LifecyclePanel({ data }: { data: NarrativeWorkspaceProps }) {
       >
         {validation ? (
           <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                variant={
+                  validation.mode === "live"
+                    ? "positive"
+                    : validation.mode === "partial"
+                      ? "outline"
+                      : "muted"
+                }
+              >
+                {validation.mode}
+              </Badge>
+              <Badge
+                variant={
+                  validation.anchorMode === "stored_snapshots" ? "outline" : "muted"
+                }
+              >
+                {validation.anchorMode === "stored_snapshots"
+                  ? "Stored snapshots"
+                  : validation.anchorMode === "bar_relative_illustrative"
+                    ? "Illustrative anchors"
+                    : "Insufficient history"}
+              </Badge>
+            </div>
+
+            {validation.anchorMode === "bar_relative_illustrative" ? (
+              <div className="rounded-md border border-chart-4/30 bg-chart-4/10 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                <span className="font-medium text-foreground">Not a live track record.</span>{" "}
+                Stored snapshots are younger than 24h, so these forward windows use bar-relative
+                demo anchors. Revisit this narrative over multiple days for stored-snapshot
+                validation.
+              </div>
+            ) : null}
+
             <p className="text-sm leading-6 text-muted-foreground">{validation.summary}</p>
             <div className="grid gap-3 sm:grid-cols-2">
               {[validation.highConviction, validation.lowConviction].map((bucket) => (
@@ -153,6 +187,9 @@ export function LifecyclePanel({ data }: { data: NarrativeWorkspaceProps }) {
                   <p className="font-medium text-foreground">{bucket.label}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {bucket.sampleCount} sample{bucket.sampleCount === 1 ? "" : "s"}
+                    {validation.anchorMode === "bar_relative_illustrative"
+                      ? " · illustrative"
+                      : ""}
                   </p>
                   <dl className="mt-3 space-y-1 text-xs">
                     <div className="flex justify-between gap-2">

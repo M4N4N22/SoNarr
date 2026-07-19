@@ -72,6 +72,12 @@ function parseInput(value: unknown): DecisionAssistInput | undefined {
         validation.mode === "unavailable"
           ? validation.mode
           : "partial",
+      anchorMode:
+        validation.anchorMode === "stored_snapshots" ||
+        validation.anchorMode === "bar_relative_illustrative" ||
+        validation.anchorMode === "insufficient_history"
+          ? validation.anchorMode
+          : "insufficient_history",
       summary: typeof validation.summary === "string" ? validation.summary : "",
       highConviction: isRecord(validation.highConviction)
         ? {

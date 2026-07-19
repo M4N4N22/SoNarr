@@ -213,11 +213,18 @@ export function rankBasketAssets(
   const max = options?.max ?? 5;
   const liquidity = options?.liquidityTurnoverByAsset ?? {};
   const routable = options?.routableByAsset ?? {};
+  const hasEvidencePeers = candidates.some(
+    (candidate) =>
+      candidate.evidenceCount > 0 ||
+      candidate.sources.some((source) => source !== "testnet" && source !== "default"),
+  );
 
   const ranked = candidates.map((candidate) => {
     const turnover = liquidity[candidate.asset];
     const isRoutable = routable[candidate.asset];
     let rankScore = candidate.rankScore;
+    const testnetOnly =
+      candidate.sources.length === 1 && candidate.sources[0] === "testnet";
 
     let liquidityHint: string | undefined;
     if (typeof turnover === "number" && turnover > 0) {
@@ -227,9 +234,14 @@ export function rankBasketAssets(
     }
 
     if (isRoutable === true) {
-      rankScore = Math.min(100, rankScore + 12);
+      rankScore = Math.min(100, rankScore + 18);
     } else if (isRoutable === false) {
-      rankScore = Math.max(0, rankScore - 8);
+      rankScore = Math.max(0, rankScore - 14);
+    }
+
+    // Prefer evidence-backed legs over pure testnet proxy fillers when peers exist.
+    if (testnetOnly && hasEvidencePeers) {
+      rankScore = Math.max(0, rankScore - 20);
     }
 
     return {
@@ -241,7 +253,8 @@ export function rankBasketAssets(
         candidate.reason +
         (isRoutable === true ? " · SoDEX routable" : "") +
         (isRoutable === false ? " · SoDEX unmapped" : "") +
-        (liquidityHint ? ` · ${liquidityHint}` : ""),
+        (liquidityHint ? ` · ${liquidityHint}` : "") +
+        (testnetOnly && hasEvidencePeers ? " · demoted vs evidence peers" : ""),
     };
   });
 

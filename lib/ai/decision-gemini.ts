@@ -17,6 +17,7 @@ export type DecisionAssistInput = {
   validation?: Pick<
     LifecycleValidation,
     | "mode"
+    | "anchorMode"
     | "summary"
     | "highConviction"
     | "lowConviction"
@@ -70,22 +71,28 @@ function fallbackBrief(input: DecisionAssistInput): DecisionAssistBrief {
     input.executionReadiness.totalLegs > 0
       ? input.executionReadiness.tradableCount / input.executionReadiness.totalLegs
       : 0;
+  const networkLabel =
+    input.executionReadiness.network === "mainnet" ? "mainnet" : "testnet";
+  const illustrative =
+    input.validation?.anchorMode === "bar_relative_illustrative";
 
   let action: DecisionAction = "hold";
   if (input.validation?.rebalanceSuggested) {
     action = "rebalance";
   } else if (input.stage === "Cooling" || input.stage === "Faded") {
     action = "size-down";
-  } else if (input.stage === "Watching" || coverage < 0.5) {
+  } else if (input.stage === "Watching" || coverage < 0.5 || illustrative) {
     action = "wait";
   }
 
   const evidencePoints = [
-    `Lifecycle stage: ${input.stage}.`,
-    `Conviction ${input.overallScore ?? input.narrativeScore}/100 · confidence ${input.confidence}/100.`,
-    `SoDEX coverage ${input.executionReadiness.tradableCount}/${input.executionReadiness.totalLegs} on ${input.executionReadiness.network}.`,
-    ...(input.validation?.refinementCues ?? []).slice(0, 2),
-  ];
+    `Lifecycle stage is ${input.stage}.`,
+    `Conviction is ${input.overallScore ?? input.narrativeScore}/100 with confidence ${input.confidence}/100.`,
+    `${input.executionReadiness.tradableCount} of ${input.executionReadiness.totalLegs} basket legs map to live SoDEX ${networkLabel} markets.`,
+    illustrative
+      ? "Forward-return checks are illustrative only — snapshots are still too fresh for a multi-day track record."
+      : (input.validation?.summary ?? "Forward-return history is still building for this narrative."),
+  ].filter(Boolean);
 
   return {
     action,
@@ -95,15 +102,54 @@ function fallbackBrief(input: DecisionAssistInput): DecisionAssistBrief {
         : action === "size-down"
           ? "Narrative is cooling or fading — reduce exposure rather than adding size."
           : action === "wait"
-            ? "Conviction or route coverage is not ready for a full basket — wait for stronger evidence or routability."
+            ? illustrative
+              ? "High conviction alone is not enough yet — wait for real multi-day lifecycle proof and better SoDEX coverage before sizing up."
+              : "Conviction or route coverage is not ready for a full basket — wait for stronger evidence or routability."
             : "Lifecycle and readiness do not show an urgent change — hold the research stance.",
-    evidencePoints,
+    evidencePoints: evidencePoints.map(humanizeOperatorCopy),
     risks: [
-      "Decision assist is bounded to provided lifecycle + readiness JSON — not financial advice.",
-      "Forward-return samples can be thin on new narratives.",
-    ],
+      "Research aid only — not financial advice and not an automatic trade.",
+      illustrative
+        ? "Forward-return numbers are illustrative only (fresh snapshots) — not a multi-day track record."
+        : "Forward-return samples can be thin on new narratives.",
+    ].map(humanizeOperatorCopy),
     nextCheck:
-      "Re-open this narrative after the next score snapshot or after SoDEX fills update the trade journal.",
+      "Check again after the next conviction snapshot, or after SoDEX fills show up in the trade journal.",
+  };
+}
+
+/** Strip code/JSON field names so operator-facing copy stays human. */
+function humanizeOperatorCopy(text: string) {
+  return text
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\bvalidation\.summary\b/gi, "forward-return summary")
+    .replace(/\bvalidation\.refinementCues\b/gi, "lifecycle cues")
+    .replace(/\bvalidation\.rebalanceSuggested\b/gi, "rebalance suggestion")
+    .replace(/\bvalidation\.mode\b/gi, "validation status")
+    .replace(/\bvalidation\.anchorMode\b/gi, "history quality")
+    .replace(/\bvalidation\b/gi, "forward-return check")
+    .replace(/\bexecutionReadiness\.summary\b/gi, "SoDEX route summary")
+    .replace(/\bexecutionReadiness\.[A-Za-z]+\b/gi, "SoDEX readiness")
+    .replace(/\bexecutionReadiness\b/gi, "SoDEX readiness")
+    .replace(/\bnarrativeScore\b/gi, "conviction score")
+    .replace(/\boverallScore\b/gi, "overall score")
+    .replace(/\brebalanceSuggested\b/gi, "rebalance suggestion")
+    .replace(/\brefinementCues\b/gi, "lifecycle cues")
+    .replace(/\banchorMode\b/gi, "history quality")
+    .replace(/\bNarrative\s+stage\b/gi, "Lifecycle stage")
+    .replace(/\bstates\b(?=\s+['"])/gi, "says")
+    .replace(/\sindicates\b(?=\s+['"])/gi, "shows")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function sanitizeBrief(brief: DecisionAssistBrief): DecisionAssistBrief {
+  return {
+    ...brief,
+    rationale: humanizeOperatorCopy(brief.rationale),
+    evidencePoints: brief.evidencePoints.map(humanizeOperatorCopy),
+    risks: brief.risks.map(humanizeOperatorCopy),
+    nextCheck: humanizeOperatorCopy(brief.nextCheck),
   };
 }
 
@@ -172,15 +218,42 @@ function cacheKey(input: DecisionAssistInput) {
   });
 }
 
+function buildHumanFactSheet(input: DecisionAssistInput) {
+  const illustrative = input.validation?.anchorMode === "bar_relative_illustrative";
+  return {
+    narrative: input.narrativeTitle,
+    riskLabel: input.risk,
+    lifecycleStage: input.stage,
+    convictionScore: input.overallScore ?? input.narrativeScore,
+    confidenceScore: input.confidence,
+    forwardReturnStatus: input.validation?.mode ?? "unavailable",
+    historyQuality: illustrative
+      ? "illustrative only (snapshots under 24 hours)"
+      : input.validation?.anchorMode === "stored_snapshots"
+        ? "stored multi-day snapshots"
+        : "insufficient history",
+    forwardReturnSummary: input.validation?.summary ?? "No forward-return summary yet.",
+    lifecycleCues: (input.validation?.refinementCues ?? []).slice(0, 3),
+    rebalanceSuggested: input.validation?.rebalanceSuggested === true,
+    scoreChangePct: input.validation?.scoreDeltaPct,
+    sodexNetwork: input.executionReadiness.network,
+    sodexRoutableLegs: `${input.executionReadiness.tradableCount}/${input.executionReadiness.totalLegs}`,
+    sodexRouteSummary: input.executionReadiness.summary,
+  };
+}
+
 function buildPrompt(input: DecisionAssistInput) {
   return `You are SoNarr's bounded decision-assist layer (not a black-box alpha engine).
 
 Your job:
-Recommend one operator action for a narrative basket using ONLY the provided lifecycle stats and SoDEX readiness.
+Recommend one operator action for a narrative basket using ONLY the provided facts.
 
 Hard rules:
 - Do not invent fills, prices, PnL, or kline numbers.
-- Use only the JSON input.
+- Use only the fact sheet below.
+- Write every string for a human operator — plain English only.
+- Never quote JSON keys, code identifiers, backticks, or camelCase field names.
+- Prefer phrases like "lifecycle stage", "conviction score", "forward-return check", "SoDEX route coverage".
 - Do not provide financial advice or guarantee outcomes.
 - Do not recommend automatic trading.
 - action must be exactly one of: hold | size-down | wait | rebalance
@@ -193,8 +266,8 @@ Hard rules:
   "nextCheck": "string"
 }
 
-Input:
-${JSON.stringify(input, null, 2)}`;
+Fact sheet:
+${JSON.stringify(buildHumanFactSheet(input), null, 2)}`;
 }
 
 export async function generateDecisionAssist(
@@ -210,13 +283,13 @@ export async function generateDecisionAssist(
       source: "cache",
       cached: true,
       cacheTtlSeconds: Math.max(1, Math.round((cached.expiresAt - now) / 1000)),
-      brief: cached.brief,
+      brief: sanitizeBrief(cached.brief),
     };
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    const brief = fallbackBrief(input);
+    const brief = sanitizeBrief(fallbackBrief(input));
     decisionCache.set(key, {
       brief,
       source: "fallback",
@@ -236,7 +309,7 @@ export async function generateDecisionAssist(
     });
 
     if (!response.ok) {
-      const brief = fallbackBrief(input);
+      const brief = sanitizeBrief(fallbackBrief(input));
       decisionCache.set(key, {
         brief,
         source: "fallback",
@@ -248,7 +321,7 @@ export async function generateDecisionAssist(
     const payload = (await response.json()) as GeminiResponse;
     const text = getGeminiText(payload);
     const parsed = text ? parseBrief(JSON.parse(cleanJsonText(text))) : undefined;
-    const brief = parsed ?? fallbackBrief(input);
+    const brief = sanitizeBrief(parsed ?? fallbackBrief(input));
 
     decisionCache.set(key, {
       brief,
@@ -262,7 +335,7 @@ export async function generateDecisionAssist(
       brief,
     };
   } catch {
-    const brief = fallbackBrief(input);
+    const brief = sanitizeBrief(fallbackBrief(input));
     decisionCache.set(key, {
       brief,
       source: "fallback",
