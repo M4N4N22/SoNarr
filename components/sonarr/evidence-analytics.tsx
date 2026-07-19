@@ -284,21 +284,26 @@ export function LayerScoreChart({ stack }: { stack: NarrativeSignalStack }) {
 }
 
 export function AssetReturnsChart({ trends }: { trends: KlineTrend[] }) {
-  if (trends.length === 0) {
+  const data = trends
+    .filter(
+      (trend) =>
+        typeof trend.change7dPct === "number" || typeof trend.change30dPct === "number",
+    )
+    .map((trend) => ({
+      symbol: trend.symbol,
+      ...(typeof trend.change7dPct === "number" ? { "7d": trend.change7dPct } : {}),
+      ...(typeof trend.change30dPct === "number" ? { "30d": trend.change30dPct } : {}),
+      vol: trend.volatility7dPct,
+    }));
+
+  if (data.length === 0) {
     return null;
   }
-
-  const data = trends.map((trend) => ({
-    symbol: trend.symbol,
-    "7d": trend.change7dPct ?? 0,
-    "30d": trend.change30dPct ?? 0,
-    vol: trend.volatility7dPct,
-  }));
 
   return (
     <ChartFrame
       title="Asset returns"
-      subtitle="Signed SoSoValue daily kline windows"
+      subtitle="Signed SoSoValue daily kline windows (missing windows omitted)"
     >
       <div className="h-[260px] w-full">
         <ResponsiveContainer width="100%" height="100%">

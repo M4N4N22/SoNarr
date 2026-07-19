@@ -336,8 +336,9 @@ export function SodexTradingPanel({
     const watchedIds = new Set(
       (result.legResults ?? [])
         .filter((leg) => leg.ok && leg.clOrdID)
-        .map((leg) => leg.clOrdID),
+        .map((leg) => leg.clOrdID as string),
     );
+    const seenIds = new Set<string>();
 
     function isTerminalStatus(status?: string) {
       const value = (status ?? "").toLowerCase();
@@ -358,11 +359,24 @@ export function SodexTradingPanel({
         value.includes("cancel") ||
         value.includes("reject") ||
         value.includes("expire") ||
-        value.includes("done")
+        value.includes("done") ||
+        value.includes("closed")
       );
     }
 
-    function allWatchedTerminal(orders: AccountSnapshot["orders"]) {
+    function isStillOpen(status?: string) {
+      const value = (status ?? "").toLowerCase();
+      return (
+        value.includes("open") ||
+        value.includes("new") ||
+        value.includes("live") ||
+        value.includes("partial") ||
+        value.includes("pending")
+      );
+    }
+
+    /** SoDEX open-orders lists drop filled/cancelled rows — absence after grace = left the book. */
+    function allWatchedResolved(orders: AccountSnapshot["orders"], attempt: number) {
       if (watchedIds.size === 0) {
         return false;
       }
@@ -371,25 +385,56 @@ export function SodexTradingPanel({
           .filter((order) => order.clOrdId)
           .map((order) => [order.clOrdId!, order]),
       );
-      let seen = 0;
+
       for (const id of watchedIds) {
         const order = byClOrdId.get(id);
         if (!order) {
+          if (attempt >= 2 || seenIds.has(id)) {
+            continue;
+          }
           return false;
         }
-        seen += 1;
-        if (!isTerminalStatus(order.status)) {
+        seenIds.add(id);
+        if (isStillOpen(order.status) && !isTerminalStatus(order.status)) {
           return false;
         }
       }
-      return seen === watchedIds.size;
+      return true;
+    }
+
+    function snapshotFills(orders: AccountSnapshot["orders"]): AccountSnapshot["orders"] {
+      const byClOrdId = new Map(
+        orders
+          .filter((order) => order.clOrdId)
+          .map((order) => [order.clOrdId!, order]),
+      );
+      const fills: AccountSnapshot["orders"] = [];
+
+      for (const id of watchedIds) {
+        const live = byClOrdId.get(id);
+        if (live) {
+          fills.push(live);
+          continue;
+        }
+        const leg = (result.legResults ?? []).find((item) => item.clOrdID === id);
+        fills.push({
+          clOrdId: id,
+          symbol: leg?.displayName ?? leg?.asset,
+          status: seenIds.has(id) || watchedIds.has(id) ? "left_open_book" : undefined,
+          side: "BUY",
+        });
+      }
+
+      return fills;
     }
 
     setPollingFills(true);
     let latestOrders: AccountSnapshot["orders"] = [];
+    let fillSnapshot: AccountSnapshot["orders"] = [];
     const maxAttempts = 12;
     const startedAt = Date.now();
     const timeoutMs = 45_000;
+    let resolvedEarly = false;
 
     try {
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -400,16 +445,32 @@ export function SodexTradingPanel({
         const snapshot = await refreshAccount();
         latestOrders = snapshot?.orders ?? [];
 
-        if (allWatchedTerminal(latestOrders)) {
+        if (allWatchedResolved(latestOrders, attempt)) {
+          resolvedEarly = true;
+          fillSnapshot = snapshotFills(latestOrders);
           break;
         }
         if (Date.now() - startedAt >= timeoutMs) {
           break;
         }
       }
+
+      if (!resolvedEarly) {
+        fillSnapshot = snapshotFills(latestOrders);
+      }
     } finally {
       setPollingFills(false);
-      await appendJournal(result, latestOrders);
+      const stillOpen = fillSnapshot.filter((order) => isStillOpen(order.status)).length;
+      const leftBook = fillSnapshot.filter((order) =>
+        (order.status ?? "").toLowerCase().includes("left_open_book"),
+      ).length;
+      const note =
+        stillOpen > 0
+          ? `${summarizeSubmitMessage(result)} · poll timeout with ${stillOpen} still open`
+          : leftBook > 0
+            ? `${summarizeSubmitMessage(result)} · ${leftBook} left open book (filled/cancelled off-list)`
+            : summarizeSubmitMessage(result);
+      await appendJournal({ ...result, message: note }, fillSnapshot);
     }
   }
 
@@ -877,7 +938,16 @@ export function SodexTradingPanel({
             </div>
             <ul className="divide-y divide-border overflow-hidden rounded-md border border-border">
               {(executionReadiness.legs.length > 0
-                ? executionReadiness.legs
+                ? executionReadiness.legs.map((leg) => ({
+                    asset: leg.asset,
+                    weight: leg.weight,
+                    legNotionalUsd: leg.legNotionalUsd,
+                    tradable: leg.tradable,
+                    displayName: leg.displayName,
+                    sodexSymbol: leg.sodexSymbol,
+                    message: leg.message,
+                    slippagePct: leg.slippagePct,
+                  }))
                 : weightedAssets.map((leg) => ({
                     asset: leg.asset,
                     weight: leg.weight,
@@ -885,13 +955,15 @@ export function SodexTradingPanel({
                     tradable: false,
                     displayName: undefined as string | undefined,
                     sodexSymbol: undefined as string | undefined,
-                    message: "Route pending",
+                    message: "Route pending" as string | undefined,
+                    slippagePct: undefined as number | undefined,
                   }))
               ).map((leg) => {
                 const notional =
                   typeof leg.legNotionalUsd === "number" && leg.legNotionalUsd > 0
                     ? leg.legNotionalUsd
                     : (basketNotionalUsd * leg.weight) / 100;
+                const slip = typeof leg.slippagePct === "number" ? leg.slippagePct : undefined;
                 return (
                   <li
                     key={leg.asset}
@@ -922,8 +994,8 @@ export function SodexTradingPanel({
                         ${Math.round(notional).toLocaleString()}
                       </p>
                       <p className="text-[10px] text-muted-foreground">
-                        {typeof leg.slippagePct === "number"
-                          ? `slip ${leg.slippagePct > 0 && leg.slippagePct < 0.01 ? "<0.01" : leg.slippagePct.toFixed(2)}%`
+                        {typeof slip === "number"
+                          ? `slip ${slip > 0 && slip < 0.01 ? "<0.01" : slip.toFixed(2)}%`
                           : executionReadiness.network === "mainnet"
                             ? "USDC"
                             : "vUSDC"}

@@ -8,16 +8,23 @@ import type { TradeJournalEntry } from "@/lib/sonarr/trade-journal";
 
 function fillSummary(entry: TradeJournalEntry) {
   if (entry.fills.length === 0) {
-    return "No fill snapshot yet";
+    return "Accepted — fill snapshot unavailable";
   }
-  const filled = entry.fills.filter((fill) =>
-    (fill.status ?? "").toLowerCase().includes("fill"),
-  ).length;
+  const filled = entry.fills.filter((fill) => {
+    const status = (fill.status ?? "").toLowerCase();
+    return status.includes("fill") || status.includes("left_open_book");
+  }).length;
   const open = entry.fills.filter((fill) => {
     const status = (fill.status ?? "").toLowerCase();
     return status.includes("open") || status.includes("new") || status.includes("live");
   }).length;
-  return `${filled} filled · ${open} open · ${entry.fills.length} tracked`;
+  const leftBook = entry.fills.filter((fill) =>
+    (fill.status ?? "").toLowerCase().includes("left_open_book"),
+  ).length;
+  if (leftBook > 0 && open === 0) {
+    return `${filled} closed off open-book · ${entry.fills.length} tracked`;
+  }
+  return `${filled} filled/closed · ${open} open · ${entry.fills.length} tracked`;
 }
 
 export function TradeJournalStrip({
