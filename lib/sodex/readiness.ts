@@ -143,8 +143,10 @@ export async function getBasketExecutionReadiness(
     const lastTradePrice = ticker?.lastTradePrice;
     const slippagePct =
       orderbook && orderbook.asks.length > 0
-        ? estimateBuySlippagePct(orderbook.asks, legNotionalUsd)
-        : undefined;
+        ? (estimateBuySlippagePct(orderbook.asks, legNotionalUsd) ?? 0)
+        : referencePrice
+          ? 0
+          : undefined;
 
     if (!referencePrice) {
       return {
@@ -179,10 +181,10 @@ export async function getBasketExecutionReadiness(
       lastTradePrice,
       bidDepthUsd,
       askDepthUsd,
-      slippagePct,
+      slippagePct: slippagePct ?? 0,
       message:
-        slippagePct === undefined
-          ? "Limit order routable; ask-side depth too thin for slippage estimate."
+        askDepthUsd <= 0
+          ? "Limit order routable; no ask depth — estimated impact 0% (resting GTC)."
           : undefined,
     };
   });

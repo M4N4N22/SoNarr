@@ -81,6 +81,13 @@ export type NarrativeWorkspaceProps = {
     etfSnapshot?: EtfMarketSnapshot;
     macroEvents: MacroEventDay[];
   };
+  /** SoSoValue SSI tickers related to this basket + constituent overlap. */
+  relevantIndexTickers: string[];
+  indexOverlaps: Array<{
+    asset: string;
+    indexTicker: string;
+    weight?: number;
+  }>;
 };
 
 export const narrativeTabs: Array<{
@@ -101,18 +108,18 @@ export const narrativeTabs: Array<{
   {
     id: "evidence",
     label: "Evidence",
-    hint: "News and SoSoValue layers behind the theme.",
+    hint: "Analytics for signals, klines, and liquidity.",
     title: "Evidence",
     description:
-      "Headlines, the multi-layer signal stack, and deeper SoSoValue market data that support (or weaken) this narrative.",
+      "Live SoSoValue analytics — conviction radar, layer scores, asset returns, CEX liquidity, and supporting headlines.",
   },
   {
     id: "product",
     label: "Index",
-    hint: "Suggested basket weights — research only.",
-    title: "Index preview",
+    hint: "Package evidence into a weighted basket.",
+    title: "Basket from evidence",
     description:
-      "The proposed weighted basket for this narrative: asset mix, methodology rules, and risk checks. No live trading on this tab.",
+      "Turn Evidence into target weights and leg provenance, check SSI benchmark overlap, then carry Lifecycle stage and SoDEX readiness into Launch. Research packaging only — no live trading here.",
   },
   {
     id: "lifecycle",

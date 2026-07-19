@@ -457,12 +457,33 @@ export async function getIndexMarketSnapshots(indexTickers: string[]) {
       continue;
     }
 
+    // Live API: change_pct_24h / roi_* are decimal fractions (0.0263 → +2.63%).
+    // Legacy aliases (24h_change_pct, 7day_roi) were documented as percent points.
+    const change24hPct =
+      (() => {
+        const fraction = asNumber(payload.change_pct_24h);
+        if (fraction !== undefined) return fraction * 100;
+        return asNumber(payload["24h_change_pct"]);
+      })();
+    const weekRoi =
+      (() => {
+        const fraction = asNumber(payload.roi_7d);
+        if (fraction !== undefined) return fraction * 100;
+        return asNumber(payload["7day_roi"]);
+      })();
+    const monthRoi =
+      (() => {
+        const fraction = asNumber(payload.roi_1m);
+        if (fraction !== undefined) return fraction * 100;
+        return asNumber(payload["1month_roi"]);
+      })();
+
     snapshots.push({
       indexTicker,
       price: asNumber(payload.price),
-      change24hPct: asNumber(payload["24h_change_pct"]),
-      weekRoi: asNumber(payload["7day_roi"]),
-      monthRoi: asNumber(payload["1month_roi"]),
+      change24hPct,
+      weekRoi,
+      monthRoi,
     });
   }
 

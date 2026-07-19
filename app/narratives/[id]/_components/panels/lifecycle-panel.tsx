@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
-import { Activity, AlertTriangle, LineChart, Sparkles } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, LineChart, Package, Sparkles } from "lucide-react";
 
 import { AiDecisionAssist } from "@/components/sonarr/ai-decision-assist";
 import { MiniTimeline } from "@/components/charts/mini-timeline";
 import { PageSection } from "@/components/layout/page-section";
 import { Badge } from "@/components/ui/badge";
-import type { NarrativeWorkspaceProps } from "../types";
+import type { NarrativeWorkspaceProps, NarrativeWorkspaceTab } from "../types";
 
 function formatPct(value?: number) {
   if (value === undefined) {
@@ -20,7 +20,12 @@ function lifecycleStorageKey(narrativeId: string) {
   return `sonarr:lifecycle:${narrativeId}`;
 }
 
-export function LifecyclePanel({ data }: { data: NarrativeWorkspaceProps }) {
+type LifecyclePanelProps = {
+  data: NarrativeWorkspaceProps;
+  onTabChange: (tab: NarrativeWorkspaceTab) => void;
+};
+
+export function LifecyclePanel({ data, onTabChange }: LifecyclePanelProps) {
   const { lifecycle, decisionAssistInput, narrative } = data;
   const validation = lifecycle.validation;
   const scoreTrail = lifecycle.snapshots.map((snap) => ({
@@ -79,20 +84,42 @@ export function LifecyclePanel({ data }: { data: NarrativeWorkspaceProps }) {
           {lifecycle.persistenceBackend ? (
             <Badge variant="outline">{lifecycle.persistenceBackend}</Badge>
           ) : null}
-          {validation?.rebalanceSuggested ? (
-            <Badge variant="positive">Rebalance suggested</Badge>
-          ) : null}
-          {validation?.scoreDeltaPct !== undefined ? (
-            <span className="text-xs text-muted-foreground">
-              Recent score Δ {formatPct(validation.scoreDeltaPct)}
-            </span>
-          ) : null}
         </div>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
           Watching → Heating → Active → Cooling → Faded. Updated{" "}
           {new Date(lifecycle.updatedAt).toLocaleString()}.
         </p>
       </PageSection>
+
+      {validation?.rebalanceSuggested ? (
+        <section className="rounded-lg border border-border bg-card px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <Package className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  Review Index weights before Launch
+                </p>
+                <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                  Conviction moved
+                  {validation.scoreDeltaPct !== undefined
+                    ? ` ~${validation.scoreDeltaPct > 0 ? "+" : ""}${validation.scoreDeltaPct.toFixed(1)}%`
+                    : ""}
+                  . Revisit basket packaging on Index, then size on Launch.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onTabChange("product")}
+              className="inline-flex items-center gap-1 text-xs font-medium text-primary transition hover:opacity-80"
+            >
+              Open Index
+              <ArrowRight className="h-3 w-3" />
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <PageSection
         icon={LineChart}

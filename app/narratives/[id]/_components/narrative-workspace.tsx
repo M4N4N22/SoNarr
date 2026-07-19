@@ -100,9 +100,15 @@ function NarrativeWorkspaceInner(props: NarrativeWorkspaceProps) {
           />
 
           {activeTab === "overview" ? <OverviewPanel data={props} /> : null}
-          {activeTab === "evidence" ? <EvidencePanel data={props} /> : null}
-          {activeTab === "product" ? <ProductPanel data={props} /> : null}
-          {activeTab === "lifecycle" ? <LifecyclePanel data={props} /> : null}
+          {activeTab === "evidence" ? (
+            <EvidencePanel data={props} onTabChange={onTabChange} />
+          ) : null}
+          {activeTab === "product" ? (
+            <ProductPanel data={props} onTabChange={onTabChange} />
+          ) : null}
+          {activeTab === "lifecycle" ? (
+            <LifecyclePanel data={props} onTabChange={onTabChange} />
+          ) : null}
           {activeTab === "launch" ? <LaunchPanel data={props} /> : null}
         </div>
       </div>

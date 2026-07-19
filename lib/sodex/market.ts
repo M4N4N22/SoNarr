@@ -356,14 +356,19 @@ export function resolveReferencePrice(
 }
 
 export function estimateBuySlippagePct(asks: SodexOrderBookLevel[], notionalUsd: number) {
-  if (asks.length === 0 || notionalUsd <= 0) {
+  if (notionalUsd <= 0) {
     return undefined;
+  }
+
+  // GTC limit buys rest when the ask book is empty — no immediate walk impact.
+  if (asks.length === 0) {
+    return 0;
   }
 
   const bestAsk = asks[0]?.price;
 
-  if (!bestAsk) {
-    return undefined;
+  if (!bestAsk || bestAsk <= 0) {
+    return 0;
   }
 
   let remainingUsd = notionalUsd;
@@ -373,6 +378,10 @@ export function estimateBuySlippagePct(asks: SodexOrderBookLevel[], notionalUsd:
   for (const level of asks) {
     if (remainingUsd <= 0) {
       break;
+    }
+
+    if (!level.price || level.price <= 0 || !level.quantity || level.quantity <= 0) {
+      continue;
     }
 
     const levelNotional = level.price * level.quantity;
@@ -385,7 +394,7 @@ export function estimateBuySlippagePct(asks: SodexOrderBookLevel[], notionalUsd:
   }
 
   if (acquiredQty <= 0) {
-    return undefined;
+    return 0;
   }
 
   const averagePrice = spentUsd / acquiredQty;
