@@ -7,7 +7,8 @@ export function isSignatureRecoveryError(message: string) {
   return (
     normalized.includes("recovery id") ||
     normalized.includes("recover signer") ||
-    normalized.includes("invalid signature")
+    normalized.includes("invalid signature") ||
+    normalized.includes("bad recovery")
   );
 }
 
@@ -53,9 +54,9 @@ export function legStatusHint(category: LegErrorCategory) {
     case "success":
       return "Limit buy accepted by SoDEX.";
     case "cancel-only":
-      return "SoDEX testnet maintenance — new orders paused on this market. Retry later.";
+      return "SoDEX testnet maintenance — new orders paused on this market. Retry later; other legs can still be submitted.";
     case "signature":
-      return "Wallet signature could not be verified. Stay on ValueChain Testnet and approve the popup again.";
+      return "Wallet signature could not be verified. Stay on ValueChain Testnet, reconnect if needed, and approve each popup again.";
     case "halted":
       return "This market is not accepting new orders right now.";
     default:

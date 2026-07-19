@@ -100,11 +100,15 @@ async function submitSignedPlanLeg(
   address: `0x${string}`,
   chainId: number,
   network: BasketExecutionReadiness["network"],
+  nonce: bigint,
 ) {
   const plan = singleOrderPlan(order);
   const batchRequest = planToBatchNewOrderRequest(plan, accountId);
-  const nonce = BigInt(Date.now());
-  const typedData = getSodexExchangeTypedData(getBatchNewOrderPayloadHash(batchRequest), nonce, chainId);
+  const typedData = getSodexExchangeTypedData(
+    getBatchNewOrderPayloadHash(batchRequest),
+    nonce,
+    chainId,
+  );
   const walletSignature = await walletClient!.signTypedData({
     account: address,
     ...typedData,
@@ -612,6 +616,7 @@ export function SodexTradingPanel({
 
       const legResults: NonNullable<BasketTradeResult["legResults"]> = [...priorOkLegs];
       let submittedOrders = priorOkLegs.length;
+      let nextNonceMs = Date.now();
 
       for (const [index, order] of ordersToSubmit.entries()) {
         setSubmittingMessage(
@@ -620,19 +625,46 @@ export function SodexTradingPanel({
 
         if (index > 0) {
           await new Promise((resolve) => {
-            window.setTimeout(resolve, 25);
+            window.setTimeout(resolve, 75);
           });
         }
 
-        const legResult = await submitSignedPlanLeg(
-          order,
-          accountId,
-          apiKeyName,
-          walletClient,
-          address,
-          chainId,
-          executionReadiness.network,
-        );
+        const nonceMs = Math.max(Date.now(), nextNonceMs);
+        nextNonceMs = nonceMs + 1;
+
+        let legResult: BasketTradeResult;
+        try {
+          legResult = await submitSignedPlanLeg(
+            order,
+            accountId,
+            apiKeyName,
+            walletClient,
+            address,
+            chainId,
+            executionReadiness.network,
+            BigInt(nonceMs),
+          );
+        } catch (error) {
+          legResult = {
+            ok: false,
+            message:
+              error instanceof Error
+                ? error.message
+                : "Wallet signing failed for this leg.",
+            legResults: [
+              {
+                asset: order.asset,
+                clOrdID: order.clOrdID,
+                displayName: order.displayName,
+                ok: false,
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Wallet signing failed for this leg.",
+              },
+            ],
+          };
+        }
 
         if (legResult.legResults?.length) {
           legResults.push(...legResult.legResults);

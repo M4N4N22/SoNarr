@@ -43,6 +43,9 @@ next-env.d.ts
 
 /internal-docs
 
+# Local submission draft — do not publish
+/docs/wave-3-submission.txt
+
 /data/lifecycle/*.json
 !/data/lifecycle/.gitkeep.json
 /data/trade-journal/

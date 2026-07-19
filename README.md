@@ -23,8 +23,9 @@ SoSoValue (evidence)                    SoDEX (execution)
          Narrative workspace (/narratives/[id])
            Overview · Evidence · Index · Lifecycle · Launch
                     |
-                    +-- Launch: network switch → route check → wallet → preview → confirm → sign (per leg)
-                        → fill poll · retry failed · cancel open
+                    +-- Evidence analytics → Index packages basket → Lifecycle validates over time
+                    +-- Launch: Market → basket contents → size → Buy → sign (per leg)
+                        → fill poll · retry failed · cancel open · trade journal
 ```
 
 Primary navigation is **Radar** (find themes) and **SoDEX** (route and trade the current basket).
@@ -46,12 +47,15 @@ Landing, Narrative Radar, narrative workspace foundation, multi-layer signal sta
 
 ### Wave 3 (current)
 
-- **Narrative lifecycle** — score snapshots, stage machine, forward-return validation vs SoSoValue klines.
+- **Narrative lifecycle** — score snapshots, stage machine, forward-return validation vs SoSoValue klines with honest `anchorMode` (stored vs illustrative).
 - **Deeper historical scoring** — 7d/30d signed returns, volatility, drawdown, consistency.
-- **Asset provenance** — evidence-ranked extraction with leg reasons on the Index tab.
-- **Post-submit loop** — fill polling, retry failed legs, cancel open orders, trade journal.
-- **Decision assist** — bounded hold / size-down / wait / rebalance from lifecycle + readiness.
-- **Mainnet-ready operator controls** — UI network switch with mainnet confirm, balance-aware sizing, optional Upstash durable store (`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`), `SODEX_NETWORK_LOCK` for locked deploys.
+- **Evidence analytics** — live charts for conviction, layers, returns, CEX liquidity, SSI Index 24h, ETF/macro.
+- **Routability-first baskets** — rank legs with evidence + CEX turnover + SoDEX symbol match; prefer mapped coverage in top-N.
+- **Index as bridge** — Evidence → packaged weights/provenance/SSI overlap → Lifecycle stage + Launch readiness (not a detached product mock).
+- **Post-submit loop** — fill polling (open-book aware), retry failed legs, cancel open orders, trade journal.
+- **Decision assist** — bounded hold / size-down / wait / rebalance from lifecycle + readiness (human copy, no invented fills).
+- **Launch desk** — Market metrics above Buy; basket contents visible (weights, notional, Buy/Skip, slip); header wallet + network switch.
+- **Operator controls** — mainnet confirm, balance-aware sizing, optional Upstash (`UPSTASH_REDIS_REST_*`), `SODEX_NETWORK_LOCK`, tracked `.env.example`.
 
 Full changelogs: [docs/wave-2-updates.md](./docs/wave-2-updates.md) · [docs/wave-3-updates.md](./docs/wave-3-updates.md).
 
@@ -85,9 +89,10 @@ Server libraries
   lib/sosovalue/enrichment.ts     Klines (7d/30d stats), pairs, ETF, macro, featured
   lib/sosovalue.ts                Radar + narrative engine
   lib/sodex/                      Market, account, readiness, signing, trading, order-filters
-  lib/sonarr/basket-assets.ts     Evidence-ranked basket extraction + provenance
-  lib/sonarr/lifecycle.ts         Stages, snapshots, forward-return validation
+  lib/sonarr/basket-assets.ts     Evidence + CEX + SoDEX-routability ranking + provenance
+  lib/sonarr/lifecycle.ts         Stages, snapshots, forward-return validation (anchorMode)
   lib/sonarr/signal-stack.ts      Multi-layer conviction model
+  components/sonarr/evidence-analytics.tsx  Evidence charts (recharts)
   lib/ai/decision-gemini.ts       Bounded hold/size-down/wait/rebalance assist
   lib/types/data-source.ts        EndpointStatus + live/partial/unavailable
 ```
@@ -162,8 +167,9 @@ Optional server env (`SODEX_API_*`) exists only as an **operator fallback** for 
 ### Basket asset selection (honest constraints)
 
 - Narrative defaults (e.g. DeFi → AAVE, UNI, MKR) on **mainnet intent**.
-- **Testnet** uses a curated proxy list — SoDEX testnet lists ~32 markets; MKR/COMP/SNX are not listed. SoNarr documents this rather than faking coverage.
+- **Testnet** uses a curated proxy list — SoDEX testnet lists ~32 markets; many CEX names are not listed. Ranking **prefers SoDEX-mapped legs** so Launch stays executable.
 - Category/index tickers from news (e.g. `DEFI`, `MAG7.SSI`) are **filtered out** of baskets; exact symbol matching prevents `DEFI` → `DEFIssi` fuzzy routes.
+- SSI Index 24h uses live SoSoValue fields (`change_pct_24h` as a fraction → percent points).
 
 ### Testnet operator defaults
 
@@ -192,7 +198,7 @@ Gemini receives **only** structured fields already computed (scores, weights, re
 
 ```bash
 npm install
-cp .env.example .env   # if present; otherwise create .env manually
+cp .env.example .env
 npm run dev
 ```
 
@@ -240,10 +246,11 @@ Optional operator-only server submit (not needed for wallet flow):
 
 ## Scope and limits (honest)
 
-- Web2 prototype — no smart contracts, no custody. Wave 3 adds lightweight JSON lifecycle/trade-journal persistence for local/demo (ephemeral hosts may not retain files).
+- Web2 prototype — no smart contracts, no custody. Wave 3 adds lifecycle/trade-journal persistence (Upstash when set; otherwise filesystem may be ephemeral on serverless).
 - Research and execution-readiness tooling — **not investment advice**.
-- Testnet liquidity is thin; slippage may read N/A while limit routes remain valid.
-- Mainnet submit requires real spot balance, correct API key registration, and operator judgment.
+- Testnet liquidity is thin; empty ask books report **0%** estimated resting-limit impact, not guaranteed fills.
+- Fill polling tracks **open orders**; disappearance from that list is treated as left-book / closed, not average fill price.
+- Mainnet submit requires real spot balance, correct chain, and operator judgment.
 
 ## Roadmap
 
@@ -251,4 +258,4 @@ Optional operator-only server submit (not needed for wallet flow):
 | --- | --- |
 | **1 (done)** | SoSoValue evidence → narrative → index idea → brief → launch kit |
 | **2 (done)** | SoDEX readiness + wallet-signed trading, enrichment APIs, execution brief, trading UI |
-| **3 (current)** | Narrative lifecycle, forward-return validation, deeper klines, asset provenance, fill polling, decision assist |
+| **3 (current)** | Lifecycle + forward returns, Evidence analytics, routability-first Index, Launch desk + fill/journal loop, decision assist |

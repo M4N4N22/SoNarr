@@ -76,6 +76,7 @@ export {
   buildBatchCancelOrderBody,
   buildBatchNewOrderBody,
   formatSodexSignature,
+  normalizeEcdsaSignature,
   getBatchCancelOrderPayloadHash,
   getBatchNewOrderDigest,
   getBatchNewOrderPayloadHash,
