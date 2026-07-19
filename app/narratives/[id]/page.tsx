@@ -16,13 +16,12 @@ import {
   getSectorSpotlightData,
 } from "@/lib/sonarr/signal-stack";
 import {
-  enrichSelectedBasketProvenance,
   extractNarrativeAssetCandidates,
   rankBasketAssets,
   resolveNarrativeBasketAssets,
 } from "@/lib/sonarr/basket-assets";
 import { getOrRefreshNarrativeLifecycle } from "@/lib/sonarr/lifecycle";
-import { getBasketExecutionReadiness } from "@/lib/sodex";
+import { getBasketExecutionReadiness, getSpotSymbols, resolveSpotSymbol } from "@/lib/sodex";
 import {
   resolveSodexNetwork,
   SODEx_NETWORK_COOKIE,
@@ -185,7 +184,49 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
   const candidates = extractNarrativeAssetCandidates(narrative, defaultAssetsByNarrative, {
     listedSymbols,
   });
-  const selectedProvenance = rankBasketAssets(candidates, { max: 5 });
+
+  // Probe a wider evidence-ranked set, then re-rank with CEX turnover + SoDEX symbol match
+  // before locking the top-N basket (so provenance matches selection).
+  const probeProvenance = rankBasketAssets(candidates, { max: 12 });
+  const probeAssets =
+    probeProvenance.length > 0
+      ? probeProvenance.map((item) => item.asset)
+      : getAssets(narrative, listedSymbols).slice(0, 12);
+
+  const [probeLiquidityResult, spotSymbolsResult] = await Promise.all([
+    getBasketLiquidityContext(probeAssets),
+    getSpotSymbols(false, operatorNetwork),
+  ]);
+
+  const probeLiquidityTurnover = Object.fromEntries(
+    probeLiquidityResult.data.assets.map((asset) => [
+      asset.symbol.toUpperCase(),
+      asset.totalTurnover24h ?? 0,
+    ]),
+  );
+  const probeRoutable = Object.fromEntries(
+    probeAssets.map((asset) => [
+      asset.toUpperCase(),
+      Boolean(resolveSpotSymbol(asset, spotSymbolsResult.data)),
+    ]),
+  );
+
+  const selectedProvenance = rankBasketAssets(
+    probeProvenance.length > 0
+      ? probeProvenance
+      : probeAssets.map((asset) => ({
+          asset,
+          evidenceCount: 0,
+          sources: ["default" as const],
+          rankScore: 40,
+          reason: "Narrative default basket",
+        })),
+    {
+      liquidityTurnoverByAsset: probeLiquidityTurnover,
+      routableByAsset: probeRoutable,
+      max: 5,
+    },
+  );
   const assets =
     selectedProvenance.length > 0
       ? selectedProvenance.map((item) => item.asset)
@@ -210,7 +251,13 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
     getNarrativeMarketSnapshots(narrative, assets),
     getSectorSpotlightData(),
     getBasketExecutionReadiness(weightedAssets, undefined, operatorNetwork),
-    getBasketLiquidityContext(assets),
+    (async () => {
+      const covered = new Set(
+        probeLiquidityResult.data.assets.map((asset) => asset.symbol.toUpperCase()),
+      );
+      const missing = assets.some((asset) => !covered.has(asset.toUpperCase()));
+      return missing ? getBasketLiquidityContext(assets) : probeLiquidityResult;
+    })(),
     getMacroEvents(),
     getFeaturedNews(8),
     getNarrativeEtfSnapshot(narrative.id),
@@ -231,20 +278,25 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
   const routableByAsset = Object.fromEntries(
     executionReadiness.legs.map((leg) => [leg.asset.toUpperCase(), leg.tradable]),
   );
-  const assetProvenance = enrichSelectedBasketProvenance(
-    selectedProvenance.length > 0
-      ? selectedProvenance
-      : assets.map((asset) => ({
-          asset,
-          evidenceCount: 0,
-          sources: ["default" as const],
-          rankScore: 40,
-          reason: "Narrative default basket",
-        })),
-    { liquidityTurnoverByAsset, routableByAsset },
-  );
+  // Selection already ranked with liquidity + symbol routability; refresh live tradable flags only.
+  const assetProvenance = selectedProvenance.map((item) => {
+    const liveRoutable = routableByAsset[item.asset.toUpperCase()];
+    if (liveRoutable === undefined) {
+      return item;
+    }
+    if (liveRoutable === item.routable) {
+      return { ...item, routable: liveRoutable };
+    }
+    let reason = item.reason
+      .replace(/ · SoDEX routable/g, "")
+      .replace(/ · SoDEX unmapped/g, "");
+    reason += liveRoutable ? " · SoDEX routable" : " · SoDEX unmapped";
+    return { ...item, routable: liveRoutable, reason };
+  });
   const signalEndpointStatuses = [
     ...listedCurrencies.endpoints,
+    ...probeLiquidityResult.endpoints,
+    ...spotSymbolsResult.endpoints,
     ...indexConstituents.endpoints,
     ...marketSnapshots.endpoints,
     ...sectorSpotlight.endpoints,
@@ -370,6 +422,7 @@ export default async function NarrativeIntelligencePage({ params }: PageProps) {
           validation: lifecycle.validation
             ? {
                 mode: lifecycle.validation.mode,
+                anchorMode: lifecycle.validation.anchorMode,
                 summary: lifecycle.validation.summary,
                 highConviction: lifecycle.validation.highConviction,
                 lowConviction: lifecycle.validation.lowConviction,

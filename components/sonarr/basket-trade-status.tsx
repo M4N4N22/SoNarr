@@ -148,15 +148,34 @@ export function BasketTradeStatus({
 
       {pollingFills ? (
         <div className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-muted-foreground">
-          Polling SoDEX order status for fills…
+          Polling SoDEX until orders reach a terminal fill state (or timeout)…
         </div>
       ) : null}
 
       {trackedOrders && trackedOrders.length > 0 ? (
         <div className="rounded-md border border-border bg-muted/30 px-3 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Order lifecycle
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Order lifecycle
+            </p>
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              {
+                trackedOrders.filter((order) => {
+                  const status = (order.status ?? "").toLowerCase();
+                  if (status.includes("partial")) {
+                    return false;
+                  }
+                  return (
+                    status.includes("fill") ||
+                    status.includes("cancel") ||
+                    status.includes("reject") ||
+                    status.includes("expire")
+                  );
+                }).length
+              }
+              /{trackedOrders.length} terminal
+            </span>
+          </div>
           <ul className="mt-2 space-y-2">
             {trackedOrders.map((order, index) => {
               const qty = order.quantity;

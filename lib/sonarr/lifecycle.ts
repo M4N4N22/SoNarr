@@ -35,6 +35,8 @@ export type ForwardReturnBucket = {
 
 export type LifecycleValidation = {
   mode: "live" | "partial" | "unavailable";
+  /** How forward windows were anchored — never treat bar-relative demo as stored history. */
+  anchorMode: "stored_snapshots" | "bar_relative_illustrative" | "insufficient_history";
   summary: string;
   highConviction: ForwardReturnBucket;
   lowConviction: ForwardReturnBucket;
@@ -242,6 +244,7 @@ export async function validateLifecyclePerformance(
   if (snapshots.length === 0) {
     return {
       mode: "unavailable",
+      anchorMode: "insufficient_history",
       summary: "No lifecycle snapshots yet — open this narrative again to begin scoring history.",
       highConviction: { label: "High conviction (≥70)", sampleCount: 0 },
       lowConviction: { label: "Low conviction (<50)", sampleCount: 0 },
@@ -264,6 +267,7 @@ export async function validateLifecyclePerformance(
   if (!hasBars) {
     return {
       mode: "unavailable",
+      anchorMode: "insufficient_history",
       summary: "SoSoValue klines were unavailable for forward-return validation on this basket.",
       highConviction: { label: "High conviction (≥70)", sampleCount: 0 },
       lowConviction: { label: "Low conviction (<50)", sampleCount: 0 },
@@ -272,24 +276,23 @@ export async function validateLifecyclePerformance(
     };
   }
 
-  // Use older snapshots so a forward window can exist in the bar history.
+  // Only snapshots older than 24h can support a real forward window in bar history.
   const evaluable = snapshots.filter((snap) => {
     const at = Date.parse(snap.at);
     return Number.isFinite(at) && Date.now() - at > 24 * 60 * 60 * 1000;
   });
 
-  // If all snapshots are fresh (demo), still evaluate from bar-relative anchors
-  // using synthetic lookbacks so judges see the validation surface.
-  const samplesSource =
-    evaluable.length > 0
-      ? evaluable
-      : snapshots.map((snap, index) => {
-          const lookbackDays = (snapshots.length - index) * 3 + 7;
-          return {
-            ...snap,
-            at: new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString(),
-          };
-        });
+  const usingIllustrativeAnchors = evaluable.length === 0;
+  // Illustrative path: bar-relative anchors for UI shape only — never rewrite stored snapshot times.
+  const samplesSource = usingIllustrativeAnchors
+    ? snapshots.map((snap, index) => {
+        const lookbackDays = (snapshots.length - index) * 3 + 7;
+        return {
+          ...snap,
+          at: new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString(),
+        };
+      })
+    : evaluable;
 
   const highSamples: Array<{ r1?: number; r7?: number; r30?: number }> = [];
   const lowSamples: Array<{ r1?: number; r7?: number; r30?: number }> = [];
@@ -327,29 +330,44 @@ export async function validateLifecyclePerformance(
     scoreDeltaPct !== undefined && Math.abs(scoreDeltaPct) >= REBALANCE_DELTA_PCT;
 
   const refinementCues: string[] = [];
+
+  if (usingIllustrativeAnchors) {
+    refinementCues.push(
+      "Forward-return checks are illustrative only right now — conviction snapshots are still under 24 hours old. Come back over several days for a real multi-day track record.",
+    );
+  }
+
   if (
     highConviction.avgReturn7dPct !== undefined &&
     lowConviction.avgReturn7dPct !== undefined
   ) {
     if (highConviction.avgReturn7dPct > lowConviction.avgReturn7dPct) {
       refinementCues.push(
-        `High-conviction windows averaged ${highConviction.avgReturn7dPct.toFixed(2)}% over ~7d vs ${lowConviction.avgReturn7dPct.toFixed(2)}% when conviction was low — lifecycle filtering adds signal.`,
+        usingIllustrativeAnchors
+          ? `On illustrative anchors, high-conviction windows averaged ${highConviction.avgReturn7dPct.toFixed(2)}% over ~7d vs ${lowConviction.avgReturn7dPct.toFixed(2)}% when conviction was low.`
+          : `High-conviction windows averaged ${highConviction.avgReturn7dPct.toFixed(2)}% over ~7d vs ${lowConviction.avgReturn7dPct.toFixed(2)}% when conviction was low — lifecycle filtering adds signal.`,
       );
     } else {
       refinementCues.push(
-        `High-conviction windows did not outperform low-conviction ones on this sample — treat scores as research aids and tighten execution filters.`,
+        usingIllustrativeAnchors
+          ? "On illustrative anchors, high-conviction windows did not outperform low-conviction ones — wait for stored multi-day snapshots before trusting this read."
+          : `High-conviction windows did not outperform low-conviction ones on this sample — treat scores as research aids and tighten execution filters.`,
       );
     }
-  } else if (highConviction.sampleCount > 0) {
+  } else if (highConviction.sampleCount > 0 && !usingIllustrativeAnchors) {
     refinementCues.push(
-      `Collected ${highConviction.sampleCount} high-conviction forward windows from SoSoValue klines.`,
+      `Collected ${highConviction.sampleCount} high-conviction forward windows from SoSoValue klines against stored snapshots.`,
     );
   }
 
   const lowCoverageSnaps = snapshots.filter(
     (snap) => typeof snap.executionCoverage === "number" && snap.executionCoverage < 0.6,
   );
-  if (lowCoverageSnaps.length >= 2 && highConviction.avgReturn7dPct !== undefined) {
+  if (
+    !usingIllustrativeAnchors &&
+    lowCoverageSnaps.length >= 2 &&
+    highConviction.avgReturn7dPct !== undefined
+  ) {
     refinementCues.push(
       "High conviction historically coincided with weak SoDEX coverage on some visits — prefer baskets with higher routable leg ratios before sizing up.",
     );
@@ -367,15 +385,34 @@ export async function validateLifecyclePerformance(
     );
   }
 
-  const mode: LifecycleValidation["mode"] =
-    highConviction.sampleCount + lowConviction.sampleCount >= 2 ? "live" : "partial";
+  const sampleTotal = highConviction.sampleCount + lowConviction.sampleCount;
+  const anchorMode: LifecycleValidation["anchorMode"] = usingIllustrativeAnchors
+    ? "bar_relative_illustrative"
+    : sampleTotal === 0
+      ? "insufficient_history"
+      : "stored_snapshots";
+
+  // Never mark illustrative / empty anchors as live track record.
+  const mode: LifecycleValidation["mode"] = usingIllustrativeAnchors
+    ? "partial"
+    : sampleTotal >= 2
+      ? "live"
+      : sampleTotal > 0
+        ? "partial"
+        : "unavailable";
+
+  const summary = usingIllustrativeAnchors
+    ? "Illustrative forward returns only — snapshots are too fresh for a real multi-day track record. Numbers use demo time anchors from SoSoValue klines, not stored history."
+    : mode === "live"
+      ? "Forward returns from SoSoValue daily klines against stored conviction snapshots older than 24h."
+      : mode === "partial"
+        ? "Partial validation — need more contrasting stored snapshots (high vs low conviction) for a stronger read."
+        : "Not enough stored snapshot history yet for forward-return validation.";
 
   return {
     mode,
-    summary:
-      mode === "live"
-        ? "Forward returns computed from SoSoValue daily klines against stored conviction snapshots."
-        : "Partial validation — need more contrasting conviction snapshots for a stronger read.",
+    anchorMode,
+    summary,
     highConviction,
     lowConviction,
     refinementCues,

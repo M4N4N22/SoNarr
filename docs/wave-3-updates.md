@@ -8,13 +8,13 @@ Wave 3 proves that SoNarr’s narrative lifecycle improves decisions over time: 
 | --- | --- |
 | **Lifecycle panel** | Stage machine `Watching → Heating → Active → Cooling → Faded` from score trajectory |
 | **Score snapshots** | JSON store under `data/lifecycle/` + `/api/lifecycle` |
-| **Forward-return validation** | High vs low conviction buckets using SoSoValue daily klines (1d / 7d / 30d) |
+| **Forward-return validation** | High vs low conviction vs SoSoValue klines; `anchorMode` separates stored-snapshot proof from illustrative demo anchors |
 | **Deeper klines scoring** | 7d + 30d signed returns, volatility, drawdown, consistency; abs-bias removed |
-| **Fuller asset extraction** | Titles/summaries + matched currencies, ranked with CEX turnover + SoDEX routability |
-| **Leg provenance UI** | Index tab shows why each asset was included |
-| **Fill polling** | Post-submit order lifecycle (filled / partial / open / residual) |
+| **Fuller asset extraction** | Titles/summaries + matched currencies; top-N ranked with CEX turnover + SoDEX routability before selection |
+| **Leg provenance UI** | Index tab shows why each asset was included (matches ranking inputs) |
+| **Fill polling** | Post-submit poll until terminal fill/cancel (or timeout), then trade journal |
 | **Retry failed legs** | Re-sign only failed legs; keep successful accepts |
-| **Trade journal** | `/api/trade-journal` appends outcomes for feedback |
+| **Trade journal** | `/api/trade-journal` + Launch UI strip (last 5 entries, refreshes after submit) |
 | **Decision assist** | Bounded Gemini/fallback: hold / size-down / wait / rebalance from lifecycle + readiness |
 | **Network switch** | Launch UI Testnet/Mainnet toggle with mainnet confirm; cookie + optional `SODEX_NETWORK_LOCK` |
 | **Durable store** | Upstash Redis REST when configured; filesystem fallback + browser localStorage mirror |
@@ -37,6 +37,7 @@ Launch submit
 
 - Lifecycle/trade-journal persistence uses Upstash when `UPSTASH_REDIS_REST_*` is set; otherwise local filesystem (ephemeral on many hosts) plus a browser localStorage mirror.
 - Forward-return samples strengthen as snapshots accumulate; thin history is labeled partial.
+- When all snapshots are &lt;24h old, forward windows may use **bar-relative illustrative anchors** — UI badges this and never marks those reads as `live` stored-snapshot proof.
 - Decision assist never invents fills or prices — same evidence-bound rule as Wave 2 briefs.
 - Still research tooling, not financial advice; no auto-trading without wallet confirmation.
 - Keep public demos on testnet; use a dedicated deploy + funded wallet before mainnet.
@@ -45,5 +46,5 @@ Launch submit
 
 1. Open a narrative → **Lifecycle** tab (stage, trail, forward returns).
 2. **Index** tab → leg provenance.
-3. **Launch** → preview → sign & submit → watch fill polling; retry failed legs if needed.
+3. **Launch** → preview → sign & submit → watch fill polling + **Trade journal** strip; retry failed legs if needed.
 4. Generate **decision assist** on Lifecycle (cites stage + readiness).

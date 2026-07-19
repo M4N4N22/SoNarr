@@ -39,6 +39,7 @@ type SodexTradingPanelProps = {
   basketNotionalUsd: number;
   onBasketNotionalChange: (value: number, availableUsdc?: number) => void;
   loadingReadiness?: boolean;
+  onTradeRecorded?: () => void;
 };
 
 type AccountSnapshot = {
@@ -138,6 +139,7 @@ export function SodexTradingPanel({
   basketNotionalUsd,
   onBasketNotionalChange,
   loadingReadiness = false,
+  onTradeRecorded,
 }: SodexTradingPanelProps) {
   const config = useConfig();
   const { address, isConnected } = useAccount();
@@ -206,7 +208,7 @@ export function SodexTradingPanel({
 
   const refreshAccount = useCallback(async () => {
     if (!address) {
-      return;
+      return null;
     }
 
     setLoadingAccount(true);
@@ -235,7 +237,7 @@ export function SodexTradingPanel({
           ? stateJson.state.accountId
           : undefined;
 
-      setAccountSnapshot({
+      const snapshot: AccountSnapshot = {
         balances: balancesJson.balances ?? [],
         orders: ordersJson.orders ?? [],
         accountId,
@@ -245,7 +247,9 @@ export function SodexTradingPanel({
           typeof stateJson.onboardingUrl === "string"
             ? stateJson.onboardingUrl
             : sodexOnboardingUrl(network),
-      });
+      };
+      setAccountSnapshot(snapshot);
+      return snapshot;
     } finally {
       setLoadingAccount(false);
     }
@@ -312,6 +316,7 @@ export function SodexTradingPanel({
           })),
         }),
       });
+      onTradeRecorded?.();
     } catch {
       // Journal persistence is best-effort.
     }
@@ -328,27 +333,83 @@ export function SodexTradingPanel({
       return;
     }
 
+    const watchedIds = new Set(
+      (result.legResults ?? [])
+        .filter((leg) => leg.ok && leg.clOrdID)
+        .map((leg) => leg.clOrdID),
+    );
+
+    function isTerminalStatus(status?: string) {
+      const value = (status ?? "").toLowerCase();
+      if (!value) {
+        return false;
+      }
+      if (
+        value.includes("open") ||
+        value.includes("new") ||
+        value.includes("live") ||
+        value.includes("partial") ||
+        value.includes("pending")
+      ) {
+        return false;
+      }
+      return (
+        value.includes("fill") ||
+        value.includes("cancel") ||
+        value.includes("reject") ||
+        value.includes("expire") ||
+        value.includes("done")
+      );
+    }
+
+    function allWatchedTerminal(orders: AccountSnapshot["orders"]) {
+      if (watchedIds.size === 0) {
+        return false;
+      }
+      const byClOrdId = new Map(
+        orders
+          .filter((order) => order.clOrdId)
+          .map((order) => [order.clOrdId!, order]),
+      );
+      let seen = 0;
+      for (const id of watchedIds) {
+        const order = byClOrdId.get(id);
+        if (!order) {
+          return false;
+        }
+        seen += 1;
+        if (!isTerminalStatus(order.status)) {
+          return false;
+        }
+      }
+      return seen === watchedIds.size;
+    }
+
     setPollingFills(true);
+    let latestOrders: AccountSnapshot["orders"] = [];
+    const maxAttempts = 12;
+    const startedAt = Date.now();
+    const timeoutMs = 45_000;
+
     try {
-      for (let attempt = 0; attempt < 4; attempt += 1) {
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         await new Promise((resolve) => {
-          window.setTimeout(resolve, attempt === 0 ? 800 : 2000);
+          window.setTimeout(resolve, attempt === 0 ? 600 : 1500);
         });
-        await refreshAccount();
+
+        const snapshot = await refreshAccount();
+        latestOrders = snapshot?.orders ?? [];
+
+        if (allWatchedTerminal(latestOrders)) {
+          break;
+        }
+        if (Date.now() - startedAt >= timeoutMs) {
+          break;
+        }
       }
     } finally {
       setPollingFills(false);
-      try {
-        const ordersResponse = await fetch(
-          `/api/sodex/account/${address}/orders?network=${encodeURIComponent(executionReadiness.network)}`,
-        );
-        const ordersJson = ordersResponse.ok
-          ? await ordersResponse.json()
-          : { orders: [] };
-        await appendJournal(result, ordersJson.orders ?? []);
-      } catch {
-        await appendJournal(result, []);
-      }
+      await appendJournal(result, latestOrders);
     }
   }
 

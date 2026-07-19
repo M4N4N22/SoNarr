@@ -9,6 +9,7 @@ import { ExecutionPreviewSection } from "@/components/sonarr/execution-preview-s
 import { NarrativeLaunchRoom } from "@/components/sonarr/narrative-launch-room";
 import { usePersistedSodexNetwork } from "@/components/sonarr/sodex-network-switch";
 import { SodexTradingPanel } from "@/components/sonarr/sodex-trading-panel";
+import { TradeJournalStrip } from "@/components/sonarr/trade-journal-strip";
 import { useBasketExecutionReadiness } from "@/hooks/use-basket-execution-readiness";
 import { cn } from "@/lib/utils";
 import type { NarrativeWorkspaceProps } from "../types";
@@ -56,19 +57,27 @@ export function LaunchPanel({ data }: { data: NarrativeWorkspaceProps }) {
     executionReadiness,
     loadingReadiness,
   } = useBasketExecutionReadiness(data.weightedAssets, data.executionReadiness, network);
+  const [journalRefreshToken, setJournalRefreshToken] = useState(0);
 
   return (
     <div className="space-y-3">
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-        <SodexTradingPanel
-          executionReadiness={executionReadiness}
-          weightedAssets={data.weightedAssets}
-          narrativeId={data.narrative.id}
-          narrativeTitle={`${data.narrative.label} Momentum`}
-          basketNotionalUsd={basketNotionalUsd}
-          onBasketNotionalChange={setBasketNotionalUsd}
-          loadingReadiness={loadingReadiness}
-        />
+        <div className="space-y-3">
+          <SodexTradingPanel
+            executionReadiness={executionReadiness}
+            weightedAssets={data.weightedAssets}
+            narrativeId={data.narrative.id}
+            narrativeTitle={`${data.narrative.label} Momentum`}
+            basketNotionalUsd={basketNotionalUsd}
+            onBasketNotionalChange={setBasketNotionalUsd}
+            loadingReadiness={loadingReadiness}
+            onTradeRecorded={() => setJournalRefreshToken((value) => value + 1)}
+          />
+          <TradeJournalStrip
+            narrativeId={data.narrative.id}
+            refreshToken={journalRefreshToken}
+          />
+        </div>
 
         <aside className="space-y-3">
           <div className="rounded-lg border border-border bg-card">
